@@ -1,0 +1,22 @@
+name: Terraform Deploy
+
+on:
+  workflow_call:
+    inputs:
+      terraform_version:
+        required: true
+        type: string
+        default: 1.8.3
+
+
+jobs:
+    terraform_deploy:
+    name: Terraform Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Terraform Init
+        uses: .github/workflows/tf-init.yml@main
+
+      - name: Terraform Apply
+        id: apply
+        run: terraform apply 
