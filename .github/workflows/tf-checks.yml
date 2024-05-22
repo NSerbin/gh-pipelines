@@ -8,9 +8,9 @@ on:
         type: string
         default: 1.8.3
 
-
 jobs:
-    terraform_checks:
+  terraform_checks:
+    name: Terraform Checks
     runs-on: ubuntu-latest
     steps:
       - name: Terraform Init
