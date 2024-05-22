@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Terraform Init
-        uses: NSerbin/gh-pipelines/.github/workflows/tf-init.yml@main
+        uses: ./.github/workflows/tf-init.yml@main
 
       - name: Terraform Format
         id: fmt
