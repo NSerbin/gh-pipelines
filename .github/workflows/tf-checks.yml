@@ -13,8 +13,21 @@ jobs:
     name: Terraform Checks
     runs-on: ubuntu-latest
     steps:
+      # - name: Terraform Init
+      #   uses: ./.github/workflows/tf-init.yml@main
+      - name: Checkout Repository
+        uses: actions/checkout@v4.1.6
+        with:
+          fetch-depth: 0        
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3.1.1
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+
       - name: Terraform Init
-        uses: ./.github/workflows/tf-init.yml@main
+        id: init
+        run: terraform init
 
       - name: Terraform Format
         id: fmt
