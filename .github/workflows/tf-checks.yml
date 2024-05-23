@@ -15,11 +15,16 @@ jobs:
     steps:
       # - name: Terraform Init
       #   uses: ./.github/workflows/tf-init.yml@main
+      - name: Export secret as env
+        if: ${{ env.secret != 'null' }}
+        run: echo "$secret" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
+        env: 
+          secret: ${{ toJson(secrets) }}
       - name: Export vars as env
         if: ${{ env.var != 'null' }}
         env:
           var: ${{ toJson(vars) }}
-        run: echo "$var" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV      
+        run: echo "$var" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV 
       - name: Checkout Repository
         uses: actions/checkout@v4.1.6
         with:
