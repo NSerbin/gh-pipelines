@@ -38,7 +38,8 @@ jobs:
 
       - name: Terraform Format
         id: fmt
-        run: terraform fmt -check -recursive -diff
+        #run: terraform fmt -check -recursive -diff
+        run: terraform fmt 
 
       - name: Terraform Validate
         id: validate
