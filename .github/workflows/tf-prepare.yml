@@ -17,8 +17,3 @@ jobs:
         uses: hashicorp/setup-terraform@v3.1.1
         with:
           terraform_version: ${{ inputs.terraform_version }}
-      - name: Cache repository
-        uses: actions/cache@v2
-        with:
-          path: ${{ github.workspace }}
-          key: ${{ runner.os }}-checkout-${{ github.sha }}
