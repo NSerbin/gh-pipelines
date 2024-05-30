@@ -40,10 +40,8 @@ jobs:
         with:
           fetch-depth: 0
           ref: "${{ github.head_ref || github.ref }}"
-      - name: Terraform Prepare
-        uses: ./tf-prepare.yml
-      - name: Terraform Init
-        uses: ./tf-init.yml
+      - name: Terraform Plan
+        uses: ./tf-plan.yml
       - name: Terraform Apply
         id: apply
         run: terraform apply 

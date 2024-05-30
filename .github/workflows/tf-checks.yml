@@ -42,8 +42,15 @@ jobs:
     name: Terraform Checks
     runs-on: ubuntu-latest
     steps:
-      - name: Terraform Prepare
-        uses: ./tf-prepare.yml
+      - name: Checkout Repository
+        uses: actions/checkout@v4.1.6
+        with:
+          fetch-depth: 0
+          ref: "${{ github.head_ref || github.ref }}"
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3.1.1
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
       - name: Terraform Format
         id: fmt
         run: terraform fmt -recursive -diff -write=true

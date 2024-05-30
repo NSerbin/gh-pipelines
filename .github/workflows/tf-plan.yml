@@ -45,7 +45,8 @@ jobs:
         with:
           terraform_version: ${{ inputs.terraform_version }}
       - name: Terraform Init
-        uses: ./tf-init.yml
+        id: init
+        run: terraform init
       - name: Terraform Plan
         id: plan
         run: terraform plan 
