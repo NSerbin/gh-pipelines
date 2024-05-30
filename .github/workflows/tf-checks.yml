@@ -44,6 +44,7 @@ jobs:
     steps:
       - name: Prepare Terraform
         uses: ./tf-prepare.yml
+      - name: Terraform Format
         id: fmt
         run: terraform fmt -recursive -diff -write=true
         continue-on-error: true
