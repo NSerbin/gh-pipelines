@@ -37,23 +37,13 @@ on:
 #           commit_message: "Auto-format Terraform files"
 
 
-name: Terraform Checks
-
-on:
-  workflow_call:
-    inputs:
-      terraform_version:
-        required: true
-        type: string
-        default: 1.8.3
-
 jobs:
   terraform_checks:
     name: Terraform Checks
     runs-on: ubuntu-latest
     steps:
       - name: Prepare Terraform
-        uses: ./.github/workflows/tf-prepare.yml
+        uses: ./tf-prepare.yml
         id: fmt
         run: terraform fmt -recursive -diff -write=true
         continue-on-error: true
