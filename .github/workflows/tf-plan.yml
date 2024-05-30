@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Terraform Init
-        uses: .github/workflows/tf-init.yml@main
+        uses: .github/workflows/tf-init.yml
 
       - name: Terraform Plan
         id: plan
