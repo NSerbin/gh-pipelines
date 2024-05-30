@@ -22,7 +22,9 @@ jobs:
         uses: actions/cache@v4.0.2
         with:
           path: repo
-          key: ${{ runner.os }}-checkout-${{ github.sha }}  
+          key: ${{ runner.os }}-checkout-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-checkout-    
       - name: Terraform Prepare
         uses: ./tf-prepare.yml
       - name: Terraform Init
