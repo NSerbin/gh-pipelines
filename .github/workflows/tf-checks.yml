@@ -17,15 +17,7 @@ jobs:
         uses: actions/checkout@v4.1.6
         with:
           fetch-depth: 0
-          target-path: repo
-      - name: Cache repository
-        uses: actions/cache@v4.0.2
-        with:
-          path: repo
-          key: ${{ runner.os }}-checkout-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-checkout-${{ github.sha }}
-            ${{ runner.os }}-checkout-    
+          ref: "${{ github.head_ref || github.ref }}"
       - name: Terraform Prepare
         uses: ./tf-prepare.yml
       - name: Terraform Format
