@@ -44,6 +44,11 @@ jobs:
         run: terraform fmt -recursive -diff -write=true
         continue-on-error: true
 
+      - name: Commit Terraform changes
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "Auto-format Terraform files"
+
       - name: Terraform Validate
         id: validate
         run: terraform validate -no-color
