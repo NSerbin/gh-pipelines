@@ -24,7 +24,8 @@ jobs:
           path: repo
           key: ${{ runner.os }}-checkout-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-checkout-            
+            ${{ runner.os }}-checkout-${{ github.sha }}
+            ${{ runner.os }}-checkout-    
       - name: Terraform Prepare
         uses: ./tf-prepare.yml
       - name: Terraform Format
