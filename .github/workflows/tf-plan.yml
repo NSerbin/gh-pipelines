@@ -9,6 +9,27 @@ on:
         default: 1.8.3
 
 
+# jobs:
+#   terraform_plan:
+#     name: Terraform Plan
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout Repository
+#         uses: actions/checkout@v4.1.6
+#         with:
+#           fetch-depth: 0
+#           ref: "${{ github.head_ref || github.ref }}"
+#       - name: Setup Terraform
+#         uses: hashicorp/setup-terraform@v3.1.1
+#         with:
+#           terraform_version: ${{ inputs.terraform_version }}
+#       - name: Terraform Init
+#         uses: ./tf-init.yml
+#       - name: Terraform Plan
+#         id: plan
+#         run: terraform plan 
+
+
 jobs:
   terraform_plan:
     name: Terraform Plan
@@ -19,8 +40,10 @@ jobs:
         with:
           fetch-depth: 0
           ref: "${{ github.head_ref || github.ref }}"
-      - name: Terraform Prepare
-        uses: ./tf-prepare.yml
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3.1.1
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
       - name: Terraform Init
         uses: ./tf-init.yml
       - name: Terraform Plan

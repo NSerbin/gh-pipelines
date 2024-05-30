@@ -8,6 +8,35 @@ on:
         type: string
         default: 1.8.3
 
+# jobs:
+#   terraform_checks:
+#     name: Terraform Checks
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout Repository
+#         uses: actions/checkout@v4.1.6
+#         with:
+#           fetch-depth: 0
+#           ref: "${{ github.head_ref || github.ref }}"
+#       - name: Setup Terraform
+#         uses: hashicorp/setup-terraform@v3.1.1
+#         with:
+#           terraform_version: ${{ inputs.terraform_version }}
+#       - name: Terraform Format
+#         id: fmt
+#         run: terraform fmt -recursive -diff -write=true
+#         continue-on-error: true
+#       - name: Terraform Validate
+#         id: validate
+#         run: terraform validate -no-color
+
+#       - name: Commit Terraform FMT Changes
+#         if: ${{ steps.fmt.outcome == 'success' }}      
+#         id: auto-commit-action
+#         uses: stefanzweifel/git-auto-commit-action@v5.0.1
+#         with:
+#           commit_message: "Auto-format Terraform files"
+
 jobs:
   terraform_checks:
     name: Terraform Checks
