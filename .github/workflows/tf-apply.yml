@@ -14,9 +14,14 @@ jobs:
     name: Terraform Deploy
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4.1.6
+        with:
+          fetch-depth: 0
+      - name: Terraform Prepare
+        uses: ./tf-prepare.yml
       - name: Terraform Init
-        uses: .github/workflows/tf-init.yml@main
-
+        uses: ./tf-init.yml
       - name: Terraform Apply
         id: apply
         run: terraform apply 
