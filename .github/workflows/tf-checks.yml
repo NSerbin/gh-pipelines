@@ -45,7 +45,8 @@ jobs:
         continue-on-error: true
 
       - name: Commit Terraform changes
-        uses: stefanzweifel/git-auto-commit-action@v4
+        id: auto-commit-action
+        uses: stefanzweifel/git-auto-commit-action@v5.0.1
         with:
           commit_message: "Auto-format Terraform files"
 
