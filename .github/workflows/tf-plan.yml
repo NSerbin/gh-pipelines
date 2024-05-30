@@ -10,13 +10,12 @@ on:
 
 
 jobs:
-    terraform_plan:
+  terraform_plan:
     name: Terraform Plan
     runs-on: ubuntu-latest
     steps:
       - name: Terraform Init
         uses: .github/workflows/tf-init.yml
-
       - name: Terraform Plan
         id: plan
         run: terraform plan 
