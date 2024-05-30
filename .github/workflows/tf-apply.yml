@@ -21,7 +21,7 @@ jobs:
       - name: Cache repository
         uses: actions/cache@v2
         with:
-          path: ${{ github.workspace }}
+          path: repo
           key: ${{ runner.os }}-checkout-${{ github.sha }}  
       - name: Terraform Prepare
         uses: ./tf-prepare.yml
