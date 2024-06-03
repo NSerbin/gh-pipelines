@@ -1,0 +1,114 @@
+name: docker-build
+
+on:
+  workflow_call:
+    inputs:
+      registry:
+        description: 'Select the registry to log in to'
+        type: string
+        default: 'dockerhub'
+      docker-tag:
+        description: Tag for Docker Image
+        type: string
+        default: latest
+      dockerfile-path:
+        description: Path of the dockerfile
+        type: string
+        default: "Dockerfile"
+      build-context:
+        description: Context to build Dockerfile
+        type: string
+        default: "."
+      docker-architecture:
+        description: Architecture type for Docker Image
+        type: string
+        default: linux/arm/v7
+      repository-name:
+        description: Name of the Repository
+        type: string
+      registry-type:
+        description: Name of the Repository
+        type: string
+        default: "private"
+
+
+env:
+  DOCKER_TAG: ${{ inputs.docker-tag }}
+  DOCKERFILE_PATH: ${{ inputs.dockerfile-path }}
+  BUILD_CONTEXT: ${{ inputs.build-context }}
+  ARCHITECTURE: ${{ inputs.docker-architecture }}
+  REPOSITORY: ${{ inputs.repository-name }}
+  
+
+
+
+jobs:
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4.1.6
+        with:
+          fetch-depth: 0
+          ref: "${{ github.head_ref || github.ref }}"
+      - name: Export secret as env
+        if: ${{ env.secret != 'null' }}
+        run: echo "$secret" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
+        env: 
+          secret: ${{ toJson(secrets) }}          
+      - name: Export vars as env
+        if: ${{ env.var != 'null' }}
+        env:
+          var: ${{ toJson(vars) }}
+        run: echo "$var" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> .env
+      - name: Set registry login variables
+        id: registry_login
+        run: |
+          if [ "${{ github.event.inputs.registry }}" == "dockerhub" ]; then
+            echo "::set-output name=registry::docker.io"
+            echo "::set-output name=username::${{ secrets.DOCKERHUB_USERNAME }}"
+            echo "::set-output name=password::${{ secrets.DOCKERHUB_TOKEN }}"
+          elif [ "${{ github.event.inputs.registry }}" == "ghcr" ]; then
+            echo "::set-output name=registry::ghcr.io"
+            echo "::set-output name=username::${{ github.actor }}"
+            echo "::set-output name=password::${{ secrets.GITHUB_TOKEN }}"
+          elif [ "${{ github.event.inputs.registry }}" == "gitlab" ]; then
+            echo "::set-output name=registry::registry.gitlab.com"
+            echo "::set-output name=username::${{ secrets.GITLAB_USERNAME }}"
+            echo "::set-output name=password::${{ secrets.GITLAB_PASSWORD }}"
+          fi
+      - name: Login to the selected registry
+        uses: docker/login-action@v3
+        if: ${{ inputs.registry != 'ecr' }}
+        with:
+          registry: ${{ steps.registry_login.outputs.registry }}
+          username: ${{ steps.registry_login.outputs.username }}
+          password: ${{ steps.registry_login.outputs.password }}
+     
+
+      ### AMAZON ECR
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        if: ${{ inputs.registry == ecr }}
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.REGION }}      
+      - name: Login to Amazon ECR
+        if: ${{ inputs.registry == 'ecr' && inputs.registry-type == 'private' }}
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Login to Amazon ECR Public
+        if: ${{ inputs.registry == 'ecr' && inputs.registry-type == 'public' }}
+        id: login-ecr-public
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registry-type: public
+
+      ### BUILDING & PUSHING
+      - name: Build, tag, and push image to DockerHUB
+        if: ${{ inputs.registry == dockerhub }}
+        run: |
+          docker buildx build --platform $ARCHITECTURE -t $REPOSITORY:$DOCKER_TAG -f $DOCKERFILE_PATH $BUILD_CONTEXT
+          docker push $REPOSITORY:$DOCKER_TAG    
