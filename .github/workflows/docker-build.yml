@@ -136,16 +136,22 @@ jobs:
       - name: Build, tag, and push image to DockerHUB
         if: ${{ inputs.registry == 'dockerhub' }}
         uses: docker/build-push-action@v5.3.0
+        env:
+          DOCKER_TAG: ${{ inputs.docker-tag }}
+          DOCKERFILE_PATH: ${{ inputs.dockerfile-path }}
+          BUILD_CONTEXT: ${{ inputs.build-context }}
+          ARCHITECTURE: ${{ inputs.docker-architecture }}
+          REPOSITORY: ${{ inputs.repository-name }}        
         with:
           context: $BUILD_CONTEXT
           file: $DOCKERFILE_PATH
           build-args: |
             NODE_VERSION=${{ github.event.inputs.node_version }}
-          platforms: ${{ inputs.docker-architecture }}
+          platforms: $ARCHITECTURE
           provenance: false
           push: true
           tags: |
-            ${{ inputs.repository-name }}:${{ inputs.docker-tag }}            
+            $REPOSITORY:$DOCKER_TAG           
       - name: Build, tag, and push image to Github Registry
         if: ${{ inputs.registry == 'ghcr.io' }}
         uses: docker/build-push-action@v5.3.0
