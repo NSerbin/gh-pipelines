@@ -141,7 +141,7 @@ jobs:
           context: ${{ inputs.build-context }}
           file: ${{ inputs.dockerfile-path }}/Dockerfile
           build-args: |
-            NODE_VERSION=${{ github.event.inputs.node_version }}
+            NODE_VERSION=${{ inputs.node_version }}
           platforms: ${{ inputs.docker-architecture }}
           provenance: false
           push: true
