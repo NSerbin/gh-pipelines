@@ -137,8 +137,8 @@ jobs:
         if: ${{ inputs.registry == 'dockerhub' }}
         uses: docker/build-push-action@v5.3.0
         with:
-          context: ${{ inputs.build-context }}
-          file: ${{ inputs.dockerfile-path }}
+          context: $BUILD_CONTEXT
+          file: $DOCKERFILE_PATH
           build-args: |
             NODE_VERSION=${{ github.event.inputs.node_version }}
           platforms: ${{ inputs.docker-architecture }}
