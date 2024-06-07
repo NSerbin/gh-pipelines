@@ -142,6 +142,7 @@ jobs:
           file: ${{ inputs.dockerfile-path }}/Dockerfile
           build-args: |
             NODE_VERSION=${{ inputs.node_version }}
+            REPO=${{ inputs.repository-name }}
           platforms: ${{ inputs.docker-architecture }}
           provenance: false
           push: true
