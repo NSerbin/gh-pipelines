@@ -82,22 +82,6 @@ jobs:
             echo "::set-output name=username::${{ secrets.GITLAB_USERNAME }}"
             echo "::set-output name=password::${{ secrets.GITLAB_PASSWORD }}"
           fi
-      # - name: Set registry login variables
-      #   id: registry_login
-      #   run: |
-      #     if [ "${{ github.event.inputs.registry }}" == "dockerhub" ]; then
-      #       echo "::set-output name=registry::docker.io"
-      #       echo "::set-output name=username::${{ secrets.DOCKERHUB_USERNAME }}"
-      #       echo "::set-output name=password::${{ secrets.DOCKERHUB_TOKEN }}"
-      #     elif [ "${{ github.event.inputs.registry }}" == "ghcr" ]; then
-      #       echo "::set-output name=registry::ghcr.io"
-      #       echo "::set-output name=username::${{ github.actor }}"
-      #       echo "::set-output name=password::${{ secrets.GITHUB_TOKEN }}"
-      #     elif [ "${{ github.event.inputs.registry }}" == "gitlab" ]; then
-      #       echo "::set-output name=registry::registry.gitlab.com"
-      #       echo "::set-output name=username::${{ secrets.GITLAB_USERNAME }}"
-      #       echo "::set-output name=password::${{ secrets.GITLAB_PASSWORD }}"
-      #     fi          
       - name: Login to the selected registry
         uses: docker/login-action@v3
         if: ${{ inputs.registry != 'ecr' }}
@@ -105,7 +89,8 @@ jobs:
           registry: ${{ steps.registry_login.outputs.registry }}
           username: ${{ steps.registry_login.outputs.username }}
           password: ${{ steps.registry_login.outputs.password }}
-     
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3     
 
       ## AMAZON ECR
       - name: Configure AWS credentials with Access Keys
@@ -135,19 +120,32 @@ jobs:
           registry-type: public
 
       ### BUILDING & PUSHING
+      # - name: Build, tag, and push image to DockerHUB
+      #   if: ${{ inputs.registry == 'dockerhub' }}
+      #   uses: docker/build-push-action@v5.3.0
+      #   with:
+      #     context: $BUILD_CONTEXT
+      #     file: $DOCKERFILE_PATH
+      #     build-args: |
+      #       NODE_VERSION=${{github.event.inputs.node_version}}
+      #     platforms: $ARCHITECTURE
+      #     provenance: false
+      #     push: true
+      #     tags: |
+      #       $REPOSITORY:$DOCKER_TAG
       - name: Build, tag, and push image to DockerHUB
         if: ${{ inputs.registry == 'dockerhub' }}
         uses: docker/build-push-action@v5.3.0
         with:
-          context: $BUILD_CONTEXT
-          file: $DOCKERFILE_PATH
+          context: ${{ inputs.build-context }}
+          file: ${{ inputs.dockerfile-path }}
           build-args: |
-            NODE_VERSION=${{github.event.inputs.node_version}}
-          platforms: $ARCHITECTURE
+            NODE_VERSION=${{ github.event.inputs.node_version }}
+          platforms: ${{ inputs.docker-architecture }}
           provenance: false
           push: true
           tags: |
-            $REPOSITORY:$DOCKER_TAG
+            ${{ inputs.repository-name }}:${{ inputs.docker-tag }}            
       - name: Build, tag, and push image to Github Registry
         if: ${{ inputs.registry == 'ghcr.io' }}
         uses: docker/build-push-action@v5.3.0
