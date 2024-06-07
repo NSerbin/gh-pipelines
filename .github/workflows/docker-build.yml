@@ -141,12 +141,12 @@ jobs:
           context: ${{ inputs.build-context }}
           file: ${{ inputs.dockerfile-path }}/Dockerfile
           build-args: |
-            NODE_VERSION=${{ inputs.node_version }}
+            NODE_VERSION=${{ inputs.node-version }}
           platforms: ${{ inputs.docker-architecture }}
           provenance: false
           push: true
           tags: |
-            ${{ inputs.repository-name }}:${{ inputs.docker-tag }}            
+            ${{ secrets.DOCKER_USERNAME }}/${{ inputs.repository-name }}:${{ inputs.docker-tag }}            
       - name: Build, tag, and push image to Github Registry
         if: ${{ inputs.registry == 'ghcr.io' }}
         uses: docker/build-push-action@v5.3.0
