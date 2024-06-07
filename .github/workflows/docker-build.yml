@@ -67,22 +67,6 @@ jobs:
         env:
           var: ${{ toJson(vars) }}
         run: echo "$var" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> .env
-      # - name: Set registry login variables
-      #   id: registry_login
-      #   run: |
-      #     if [ "${{ inputs.registry }}" == "dockerhub" ]; then
-      #       echo "::set-output name=registry::docker.io"
-      #       echo "::set-output name=username::${{ secrets.DOCKERHUB_USERNAME }}"
-      #       echo "::set-output name=password::${{ secrets.DOCKERHUB_TOKEN }}"
-      #     elif [ "${{ inputs.registry }}" == "ghcr" ]; then
-      #       echo "::set-output name=registry::ghcr.io"
-      #       echo "::set-output name=username::${{ github.actor }}"
-      #       echo "::set-output name=password::${{ secrets.GITHUB_TOKEN }}"
-      #     elif [ "${{ inputs.registry }}" == "gitlab" ]; then
-      #       echo "::set-output name=registry::registry.gitlab.com"
-      #       echo "::set-output name=username::${{ secrets.GITLAB_USERNAME }}"
-      #       echo "::set-output name=password::${{ secrets.GITLAB_PASSWORD }}"
-      #     fi
       - name: Set registry login variables
         id: registry_login
         run: |
@@ -106,6 +90,9 @@ jobs:
           registry: ${{ steps.registry_login.outputs.registry }}
           username: ${{ steps.registry_login.outputs.username }}
           password: ${{ steps.registry_login.outputs.password }}
+
+      # - name: Set up QEMU
+      #   uses: docker/setup-qemu-action@v3.0.0          
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v3     
 
