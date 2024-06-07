@@ -33,8 +33,11 @@ on:
       aws-access:
         description: Setting if will use AWS Credentials or Role
         type: string
-        default: "access-keys"      
-
+        default: "access-keys"
+      node-version:    
+        description: Setting NODE Version
+        type: string
+        default: "20"
 
 env:
   DOCKER_TAG: ${{ inputs.docker-tag }}
@@ -43,8 +46,6 @@ env:
   ARCHITECTURE: ${{ inputs.docker-architecture }}
   REPOSITORY: ${{ inputs.repository-name }}
   
-
-
 
 jobs:
   build:
