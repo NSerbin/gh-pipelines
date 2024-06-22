@@ -59,7 +59,7 @@ jobs:
       - name: Lint Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
         with:
-          dockerfile: $DOCKERFILE_PATH/Dockerfile
+          dockerfile: ${{ inputs.dockerfile-path }}/Dockerfile
   build:
     name: Build Docker Image
     runs-on: ubuntu-latest
