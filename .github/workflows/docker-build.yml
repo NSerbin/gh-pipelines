@@ -40,8 +40,7 @@ on:
         default: "20"
       linter-fail:
         description: Setting if wanna have Error fail or not
-        required: true
-        type: 'boolean'
+        type: 'string'
         default: 'false'
 
 jobs:
@@ -57,7 +56,7 @@ jobs:
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: ${{ inputs.dockerfile-path }}/Dockerfile
-          no-fail	: ${{ github.event.inputs.linter-fail }}
+          no-fail	: ${{ inputs.linter-fail }}
   build:
     name: Build Docker Image
     runs-on: ubuntu-latest
