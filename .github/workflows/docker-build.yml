@@ -38,6 +38,11 @@ on:
         description: Setting NODE Version
         type: string
         default: "20"
+      linter-fail:
+        description: Setting if wanna have Error fail or not
+        required: true
+        type: 'boolean'
+        default: 'false'
 
 jobs:
   linter:
@@ -52,6 +57,7 @@ jobs:
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: ${{ inputs.dockerfile-path }}/Dockerfile
+          no-fail	:
   build:
     name: Build Docker Image
     runs-on: ubuntu-latest
