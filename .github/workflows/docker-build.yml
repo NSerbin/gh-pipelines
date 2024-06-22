@@ -39,14 +39,6 @@ on:
         type: string
         default: "20"
 
-env:
-  DOCKER_TAG: ${{ inputs.docker-tag }}
-  DOCKERFILE_PATH: ${{ inputs.dockerfile-path }}
-  BUILD_CONTEXT: ${{ inputs.build-context }}
-  ARCHITECTURE: ${{ inputs.docker-architecture }}
-  REPOSITORY: ${{ inputs.repository-name }}
-  
-
 jobs:
   linter:
     runs-on: ubuntu-latest
@@ -140,20 +132,6 @@ jobs:
         with:
           registry-type: public
 
-      ### BUILDING & PUSHING
-      # - name: Build, tag, and push image to DockerHUB
-      #   if: ${{ inputs.registry == 'dockerhub' }}
-      #   uses: docker/build-push-action@v6.1.0
-      #   with:
-      #     context: $BUILD_CONTEXT
-      #     file: $DOCKERFILE_PATH
-      #     build-args: |
-      #       NODE_VERSION=${{github.event.inputs.node_version}}
-      #     platforms: $ARCHITECTURE
-      #     provenance: false
-      #     push: true
-      #     tags: |
-      #       $REPOSITORY:$DOCKER_TAG
       - name: Build, tag, and push image to DockerHUB
         if: ${{ inputs.registry == 'dockerhub' }}
         uses: docker/build-push-action@v6.1.0
@@ -166,30 +144,30 @@ jobs:
           provenance: false
           push: true
           tags: |
-            ${{ steps.registry_login.outputs.username }}/${{ inputs.repository-name }}:${{ inputs.docker-tag }}            
+            ${{ steps.registry_login.outputs.username }}/${{ inputs.repository-name }}:${{ inputs.docker-tag }}
       - name: Build, tag, and push image to Github Registry
         if: ${{ inputs.registry == 'ghcr.io' }}
         uses: docker/build-push-action@v6.1.0
         with:
-          context: $BUILD_CONTEXT
-          file: $DOCKERFILE_PATH
+          context: ${{ inputs.build-context }}
+          file: ${{ inputs.dockerfile-path }}/Dockerfile
           build-args: |
-            NODE_VERSION=${{github.event.inputs.node_version}}
-          platforms: $ARCHITECTURE
+            NODE_VERSION=${{inputs.node_version}}
+          platforms: ${{ inputs.docker-architecture }}
           provenance: false
           push: true
           tags: |
-            ghcr.io/user/app:latest$REPOSITORY:$DOCKER_TAG
+            ghcr.io/${{ steps.registry_login.outputs.username }}/${{ inputs.repository-name }}:${{ inputs.docker-tag }}
       - name: Build, tag, and push image to Gitlab Registry
         if: ${{ inputs.registry == 'gitlab' }}
         uses: docker/build-push-action@v6.1.0
         with:
-          context: $BUILD_CONTEXT
-          file: $DOCKERFILE_PATH
+          context: ${{ inputs.build-context }}
+          file: ${{ inputs.dockerfile-path }}/Dockerfile
           build-args: |
-            NODE_VERSION=${{github.event.inputs.node_version}}
-          platforms: $ARCHITECTURE
+            NODE_VERSION=${{inputs.node_version}}
+          platforms: ${{ inputs.docker-architecture }}
           provenance: false
           push: true
           tags: |
-            $REPOSITORY:$DOCKER_TAG
+            ${{ steps.registry_login.outputs.username }}/${{ inputs.repository-name }}:${{ inputs.docker-tag }}
