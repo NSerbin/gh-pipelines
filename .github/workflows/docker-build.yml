@@ -119,39 +119,11 @@ jobs:
         uses: docker/setup-qemu-action@v3.0.0
         with:
           image: tonistiigi/binfmt:latest
-          platforms: ${{ inputs.docker-architecture }}      
+          platforms: ${{ inputs.docker-architecture }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
           platforms: ${{ inputs.docker-architecture }}
-
-      ## AMAZON ECR
-      - name: Configure AWS credentials with Access Keys
-        uses: aws-actions/configure-aws-credentials@v4
-        if: ${{ inputs.registry == 'ecr' && inputs.aws-access-keys == true && inputs-access-role == false }}
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.REGION }}
-      - name: Configure AWS credentials with Role
-        uses: aws-actions/configure-aws-credentials@v4
-        if: ${{ inputs.registry == 'ecr' && inputs.aws-access-keys == false && inputs-access-role == true }}
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          role-session-name: ${{ secrets.AWS_ROLE_NAME }}
-          aws-region: ${{ secrets.REGION }}
-          
-      - name: Login to Amazon ECR
-        if: ${{ inputs.registry == 'ecr' && inputs.registry-type == 'private' }}
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-      - name: Login to Amazon ECR Public
-        if: ${{ inputs.registry == 'ecr' && inputs.registry-type == 'public' }}
-        id: login-ecr-public
-        uses: aws-actions/amazon-ecr-login@v2
-        with:
-          registry-type: public
-
       - name: Build, tag, and push image to DockerHUB
         if: ${{ inputs.registry == 'dockerhub' }}
         uses: docker/build-push-action@v6.1.0
@@ -186,6 +158,45 @@ jobs:
           file: ${{ inputs.dockerfile-path }}/Dockerfile
           build-args: |
             NODE_VERSION=${{inputs.node_version}}
+          platforms: ${{ inputs.docker-architecture }}
+          provenance: false
+          push: true
+          tags: |
+            ${{ steps.registry_login.outputs.username }}/${{ inputs.repository-name }}:${{ inputs.docker-tag }}
+
+      ## AMAZON ECR
+      - name: Configure AWS credentials with Access Keys
+        uses: aws-actions/configure-aws-credentials@v4
+        if: ${{ inputs.registry == 'ecr' && inputs.aws-access-keys == true && inputs-access-role == false }}
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.REGION }}
+      - name: Configure AWS credentials with Role
+        uses: aws-actions/configure-aws-credentials@v4
+        if: ${{ inputs.registry == 'ecr' && inputs.aws-access-keys == false && inputs-access-role == true }}
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: ${{ secrets.AWS_ROLE_NAME }}
+          aws-region: ${{ secrets.REGION }}
+      - name: Login to Amazon ECR
+        if: ${{ inputs.registry == 'ecr' && inputs.registry-type == 'private' }}
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Login to Amazon ECR Public
+        if: ${{ inputs.registry == 'ecr' && inputs.registry-type == 'public' }}
+        id: login-ecr-public
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registry-type: public
+      - name: Build, tag, and push image to ECR
+        if: ${{ inputs.registry == 'ecr' }}
+        uses: docker/build-push-action@v6.1.0
+        with:
+          context: ${{ inputs.build-context }}
+          file: ${{ inputs.dockerfile-path }}/Dockerfile
+          build-args: |
+            NODE_VERSION=${{ inputs.node-version }}
           platforms: ${{ inputs.docker-architecture }}
           provenance: false
           push: true
