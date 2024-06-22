@@ -49,7 +49,7 @@ on:
       linter-format:
         description: Setting to get more info from the linter job
         type: 'string'
-        default: 'json'
+        default: 'tty'
 
 
 jobs:
