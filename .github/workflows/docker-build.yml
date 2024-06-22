@@ -166,14 +166,14 @@ jobs:
       ## AMAZON ECR
       - name: Configure AWS credentials with Access Keys
         uses: aws-actions/configure-aws-credentials@v4
-        if: ${{ inputs.registry == 'ecr' && inputs.aws-access-keys == true && inputs-access-role == false }}
+        if: ${{ inputs.registry == 'ecr' && inputs.aws-access-keys == true && inputs.aws-access-role == false }}
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.REGION }}
       - name: Configure AWS credentials with Role
         uses: aws-actions/configure-aws-credentials@v4
-        if: ${{ inputs.registry == 'ecr' && inputs.aws-access-keys == false && inputs-access-role == true }}
+        if: ${{ inputs.registry == 'ecr' && inputs.aws-access-keys == false && inputs.aws-access-role == true }}
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: ${{ secrets.AWS_ROLE_NAME }}
