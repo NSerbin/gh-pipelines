@@ -104,7 +104,7 @@ jobs:
           password: ${{ steps.registry_login.outputs.password }}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3.0.0\
+        uses: docker/setup-qemu-action@v3.0.0
         with:
           platforms: ${{ inputs.docker-architecture }}      
       - name: Set up Docker Buildx
