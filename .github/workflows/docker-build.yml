@@ -72,20 +72,12 @@ jobs:
           no-fail: ${{ inputs.linter-fail }}
           verbose: ${{ inputs.linter-verbose }}
           format: ${{ inputs.linter-format }}
-      - name: Check for Errors and Prepare Output
-        id: prepare_output
-        run: |
-          if grep -q "error" <<<"${{ env.HADOLINT_RESULTS }}"; then
-            echo "LINTER_OUTPUT=❌ Errors found:\n${{ env.HADOLINT_RESULTS }}" >> $GITHUB_ENV
-          else
-            echo "LINTER_OUTPUT=${{ env.HADOLINT_RESULTS }}" >> $GITHUB_ENV
-          fi
       - name: Append Linter Output to GitHub Summary
         if: always()
         run: |
           echo "## Dockerfile Linter Output" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "${{ env.LINTER_OUTPUT }}" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.HADOLINT_RESULTS }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
 
