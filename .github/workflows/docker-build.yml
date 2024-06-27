@@ -72,32 +72,13 @@ jobs:
           no-fail: ${{ inputs.linter-fail }}
           verbose: ${{ inputs.linter-verbose }}
           format: ${{ inputs.linter-format }}
-      - name: Update GitHub Summary
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const output = `
-            #### Hadolint: \`${{ steps.hadolint.outcome }}\`
-            \`\`\`
-            ${process.env.HADOLINT_RESULTS}
-            \`\`\`
-            `;
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: output
-            })
-
       - name: Append Linter Output to GitHub Summary
         if: always()
         run: |
           echo "## Dockerfile Linter Output" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "${process.env.HADOLINT_RESULTS}" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.HADOLINT_RESULTS }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-
 
 
   build:
