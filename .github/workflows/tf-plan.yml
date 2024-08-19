@@ -44,8 +44,40 @@ jobs:
         run: terraform init
       - name: Terraform Plan
         id: plan
-        run: terraform plan -no-color -input=false
+        run: terraform plan -no-color -out=tfplan
         continue-on-error: true
+      # Save plan to artifacts  
+      - name: Publish Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: tfplan
+      - name: Comment Plan
+        id: comment-plan
+        uses: peter-evans/create-or-update-comment@v2
+        env:
+          PLAN: ${{ steps.plan.outputs.stdout }}        
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            Terraform Plan:
+
+            ```
+            `#### Terraform Format and Style 🖌\`${{ steps.fmt.outcome }}\`
+            #### Terraform Initialization ⚙️\`${{ steps.init.outcome }}\`
+            #### Terraform Validation 🤖\`${{ steps.validate.outcome }}\`
+            #### Terraform Plan 📖\`${{ steps.plan.outcome }}\`
+
+            <details><summary>Show Plan</summary>
+
+            \`\`\`terraform\n
+            ${process.env.PLAN}
+            \`\`\`
+
+            </details>
+            ```
+
+            Plan saved to GH artifacts.          
       - name: Update Pull Request
         uses: actions/github-script@v6
         if: github.event_name == 'pull_request'
