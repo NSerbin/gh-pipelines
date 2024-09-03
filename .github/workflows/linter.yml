@@ -7,10 +7,15 @@ on:
         description: "Enable Python linter"
         default: false
         type: boolean 
+      terraform-linter-enable:
+        description: "Enable Terraform linter"
+        default: false
+        type: boolean         
 
 jobs:    
-  linter:
-    name: Lint
+  python-linter:
+    name: Python Linter
+    if: ${{ inputs.python-linter-enable }}       
     runs-on: ubuntu-latest
     outputs:
       lint-result: ${{ steps.run-ruff-linter.outputs.lint-result }}
@@ -22,7 +27,6 @@ jobs:
          
       - name: Install Python
         uses: actions/setup-python@v5
-        if: ${{ inputs.python-linter-enable }}        
         with:
           python-version: '3.12.5'
           
@@ -33,7 +37,6 @@ jobs:
           
       - name: Run Ruff Linter
         id: run-ruff-linter
-        if: ${{ inputs.python-linter-enable }}   
         run: |
           ruff check --config github-pipeline-templates/.github/config/.ruff.toml --output-format=grouped . > lint_output.txt
           echo "lint-result=$(cat lint_output.txt)" >> $GITHUB_ENV
@@ -45,3 +48,34 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           cat lint_output.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+  terraform-checks:
+    name: Terraform Checks
+    runs-on: ubuntu-latest
+    if: ${{ inputs.terraform-linter-enable }}    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4.1.6
+        with:
+          fetch-depth: 0
+          ref: "${{ github.head_ref || github.ref }}"
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3.1.1
+        with:
+          terraform_version: 1.9.3
+      - name: Terraform Init
+        id: init
+        run: terraform init          
+      - name: Terraform Format
+        id: fmt
+        run: terraform fmt -recursive -diff -write=true
+        continue-on-error: true
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+
+      - name: Commit Terraform FMT Changes
+        if: ${{ steps.fmt.outcome == 'success' }}      
+        id: auto-commit-action
+        uses: stefanzweifel/git-auto-commit-action@v5.0.1
+        with:
+          commit_message: "Auto-format Terraform files"          
