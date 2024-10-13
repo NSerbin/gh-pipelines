@@ -6,20 +6,20 @@ on:
       terraform_version:
         required: true
         type: string
-        default: 1.8.3
+        default: 1.9.6
 
 jobs:
-  terraform_deploy:
-    name: Terraform Deploy
+  terraform_checks:
+    name: Terraform Checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4.1.6
+        uses: actions/checkout@v4.2.1
         with:
           fetch-depth: 0
           ref: "${{ github.head_ref || github.ref }}"
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3.1.1
+        uses: hashicorp/setup-terraform@v3.1.2
         with:
           terraform_version: ${{ inputs.terraform_version }}
       - name: Install envsubst
