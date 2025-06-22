@@ -69,4 +69,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: terraform-cache
-          path: .terraform
+          path: |
+            ${{ inputs.working-directory }}/.terraform
+            ${{ inputs.working-directory }}/.terraform.lock.hcl
