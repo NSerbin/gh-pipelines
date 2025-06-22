@@ -22,7 +22,7 @@ jobs:
       - name: Restore .terraform directory
         uses: actions/download-artifact@v4
         with:
-          name: terraform-cache          
+          name: terraform-cache
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3.1.2
         with:
