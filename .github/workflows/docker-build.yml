@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4.1.6
+        uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
           ref: "${{ github.head_ref || github.ref }}"
@@ -87,7 +87,7 @@ jobs:
     needs: linter
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4.1.6
+        uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
           ref: "${{ github.head_ref || github.ref }}"
@@ -118,7 +118,7 @@ jobs:
             echo "password=${{ secrets.GITLAB_PASSWORD }}" >> $GITHUB_OUTPUT
           fi
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3.0.0
+        uses: docker/setup-qemu-action@v3.6.0
         with:
           image: tonistiigi/binfmt:latest
           platforms: ${{ inputs.docker-architecture }}
@@ -135,7 +135,7 @@ jobs:
           password: ${{ steps.registry_login.outputs.password }}
       - name: Build, tag, and push image to DockerHUB
         if: ${{ inputs.registry == 'dockerhub' }}
-        uses: docker/build-push-action@v6.1.0
+        uses: docker/build-push-action@v6.18.0
         with:
           context: ${{ inputs.build-context }}
           file: ${{ inputs.dockerfile-path }}/Dockerfile
@@ -148,7 +148,7 @@ jobs:
             ${{ steps.registry_login.outputs.username }}/${{ inputs.repository-name }}:${{ inputs.docker-tag }}
       - name: Build, tag, and push image to Github Registry
         if: ${{ inputs.registry == 'ghcr.io' }}
-        uses: docker/build-push-action@v6.1.0
+        uses: docker/build-push-action@v6.18.0
         with:
           context: ${{ inputs.build-context }}
           file: ${{ inputs.dockerfile-path }}/Dockerfile
@@ -161,7 +161,7 @@ jobs:
             ghcr.io/${{ steps.registry_login.outputs.username }}/${{ inputs.repository-name }}:${{ inputs.docker-tag }}
       - name: Build, tag, and push image to Gitlab Registry
         if: ${{ inputs.registry == 'gitlab' }}
-        uses: docker/build-push-action@v6.1.0
+        uses: docker/build-push-action@v6.18.0
         with:
           context: ${{ inputs.build-context }}
           file: ${{ inputs.dockerfile-path }}/Dockerfile
@@ -175,14 +175,14 @@ jobs:
 
       ## AMAZON ECR
       - name: Configure AWS credentials with Access Keys
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v4.2.1
         if: ${{ inputs.registry == 'ecr' && inputs.aws-access-keys == true && inputs.aws-access-role == false }}
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.REGION }}
       - name: Configure AWS credentials with Role
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v4.2.1
         if: ${{ inputs.registry == 'ecr' && inputs.aws-access-keys == false && inputs.aws-access-role == true }}
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
@@ -191,16 +191,16 @@ jobs:
       - name: Login to Amazon ECR
         if: ${{ inputs.registry == 'ecr' && inputs.registry-type == 'private' }}
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@v2.0.1
       - name: Login to Amazon ECR Public
         if: ${{ inputs.registry == 'ecr' && inputs.registry-type == 'public' }}
         id: login-ecr-public
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@v2.0.1
         with:
           registry-type: public
       - name: Build, tag, and push image to ECR
         if: ${{ inputs.registry == 'ecr' }}
-        uses: docker/build-push-action@v6.1.0
+        uses: docker/build-push-action@v6.18.0
         with:
           context: ${{ inputs.build-context }}
           file: ${{ inputs.dockerfile-path }}/Dockerfile

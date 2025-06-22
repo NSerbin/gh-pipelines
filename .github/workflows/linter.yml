@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4.1.6
+        uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
          
@@ -69,12 +69,12 @@ jobs:
     if: ${{ inputs.linter && inputs.language == 'terraform' }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4.1.6
+        uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
           ref: "${{ github.head_ref || github.ref }}"
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3.1.1
+        uses: hashicorp/setup-terraform@v3.1.2
         with:
           terraform_version: ${{ inputs.terraform-version }}
       - name: Terraform Init
