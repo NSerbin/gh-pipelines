@@ -64,6 +64,12 @@ jobs:
         run: |
           terraform init \
             -backend-config="conn_str=postgres://${{ secrets.BACKEND_USER }}:${{ secrets.BACKEND_PASSWORD }}@localhost:5433/${{ secrets.BACKEND_DB }}?sslmode=disable"
+      - name: Debug working directory contents
+        run: |
+          echo "Current path: ${{ inputs.working-directory }}"
+          ls -la ${{ inputs.working-directory }}
+          ls -la ${{ inputs.working-directory }}/.terraform || echo ".terraform no existe"
+          cat ${{ inputs.working-directory }}/.terraform.lock.hcl || echo "lockfile no existe"            
 
       - name: Save .terraform directory
         uses: actions/upload-artifact@v4
