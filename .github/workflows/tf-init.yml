@@ -38,11 +38,20 @@ jobs:
         run: |
           for file in $(find . -name "*.*.tfvars"); do
             envsubst < "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-          done          
-      - name: Install cloudflared
+          done
+
+      - name: Download and install cloudflared
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cloudflared
+          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+          chmod +x cloudflared
+          sudo mv cloudflared /usr/local/bin/cloudflared
+
+
+
+      # - name: Install cloudflared
+      #   run: |
+      #     sudo apt-get update
+      #     sudo apt-get install -y cloudflared
 
       - name: Start Cloudflare Tunnel (background)
         run: |
