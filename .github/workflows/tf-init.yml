@@ -1,0 +1,60 @@
+name: Terraform Init
+
+on:
+  workflow_call:
+    inputs:
+      terraform_version:
+        required: true
+        type: string
+        default: 1.12.2
+
+jobs:
+  terraform_init:
+    name: Terraform Init
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+          ref: "${{ github.head_ref || github.ref }}"
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3.1.2
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+      - name: Install envsubst
+        run: sudo apt-get update && sudo apt-get install -y gettext
+      - name: Export secret as env
+        if: ${{ env.secret != 'null' }}
+        run: echo "$secret" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
+        env: 
+          secret: ${{ toJson(secrets) }}
+      - name: Export vars as env
+        if: ${{ env.var != 'null' }}
+        env:
+          var: ${{ toJson(vars) }}
+        run: echo "$var" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV 
+      - name: Substitute Environment Variables with envsubst
+        run: |
+          for file in $(find . -name "*.*.tfvars"); do
+            envsubst < "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+          done          
+      - name: Install cloudflared
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cloudflared
+
+      - name: Start Cloudflare Tunnel (background)
+        run: |
+          nohup cloudflared access tcp \
+            --hostname tf-backend.nserbin.com \
+            --url localhost:5433 \
+            --id "${{ secrets.CF_ACCESS_CLIENT_ID }}" \
+            --secret "${{ secrets.CF_ACCESS_CLIENT_SECRET }}" &
+          sleep 5
+
+      - name: Terraform Init
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          terraform init \
+            -backend-config="conn_str=postgres://${{ secrets.TF_BACKEND_USER }}:${{ secrets.TF_BACKEND_PASS }}@localhost:5433/${{ secrets.TF_BACKEND_DB }}?sslmode=disable"
