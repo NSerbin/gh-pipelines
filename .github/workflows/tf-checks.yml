@@ -19,10 +19,15 @@ jobs:
         with:
           fetch-depth: 0
           ref: "${{ github.head_ref || github.ref }}"
+      - name: Restore .terraform directory
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-cache          
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3.1.2
         with:
           terraform_version: ${{ inputs.terraform_version }}
+
       # - name: Terraform Init
       #   id: init
       #   run: terraform init          
