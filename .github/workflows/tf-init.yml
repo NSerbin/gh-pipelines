@@ -69,5 +69,5 @@ jobs:
         with:
           name: terraform-cache
           path: |
-            .terraform/
-            .terraform.lock.hcl
+            ${{ inputs.working-directory }}/.terraform/
+            ${{ inputs.working-directory }}/.terraform.lock.hcl
