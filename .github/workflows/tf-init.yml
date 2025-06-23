@@ -76,5 +76,5 @@ jobs:
         with:
           name: terraform-cache
           path: |
-            .terraform
+            .terraform/
             .terraform.lock.hcl
