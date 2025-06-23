@@ -28,27 +28,34 @@ jobs:
           terraform_version: ${{ inputs.terraform_version }}
       # - name: Install envsubst
       #   run: sudo apt-get update && sudo apt-get install -y gettext
-      - name: Export secret as env
-        if: ${{ env.secret != 'null' }}
-        run: echo "$secret" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
-        env: 
-          secret: ${{ toJson(secrets) }}
-      - name: Export vars as env
-        if: ${{ env.var != 'null' }}
-        env:
-          var: ${{ toJson(vars) }}
-        run: echo "$var" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV 
+      # - name: Export secret as env
+      #   if: ${{ env.secret != 'null' }}
+      #   run: echo "$secret" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
+      #   env: 
+      #     secret: ${{ toJson(secrets) }}
+      # - name: Export vars as env
+      #   if: ${{ env.var != 'null' }}
+      #   env:
+      #     var: ${{ toJson(vars) }}
+      #   run: echo "$var" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV 
       # - name: Substitute Environment Variables with envsubst
       #   run: |
       #     for file in $(find . -name "*.*.tfvars"); do
       #       envsubst < "$file" > "$file.tmp" && mv "$file.tmp" "$file"
       #     done
-      - name: Export TF_VAR_* from secrets
+      - name: Set secrets and vars as env
         run: |
-          echo "${{ toJSON(secrets) }}" | jq -r 'to_entries[] | "TF_VAR_\(.key)=\(.value)"' >> $GITHUB_ENV
-      - name: Export TF_VAR_* from vars
+          echo "${{ toJSON(secrets) }}" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
+          echo "${{ toJSON(vars) }}" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
+
+      - name: Replace ${VAR} in .tfvars with env values
         run: |
-          echo "${{ toJSON(vars) }}" | jq -r 'to_entries[] | "TF_VAR_\(.key)=\(.value)"' >> $GITHUB_ENV
+          echo "Reemplazando variables en .tfvars..."
+          for file in $(find . -name "*.tfvars"); do
+            while IFS='=' read -r key value; do
+              sed -i "s|\${$key}|$value|g" "$file"
+            done < <(env)
+          done      
 
       - name: Download and install cloudflared
         run: |
