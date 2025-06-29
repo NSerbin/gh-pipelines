@@ -10,7 +10,6 @@ on:
       working-directory:
         required: false
         type: string
-        default: '.'
 
 jobs:
   terraform_init:
