@@ -81,5 +81,5 @@ jobs:
         with:
           name: terraform-cache
           path: |
-            /home/runner/work/tf-cloudflare/tf-cloudflare/.terraform/
-            /home/runner/work/tf-cloudflare/tf-cloudflare/.terraform.lock.hcl
+            ~/.terraform/
+            ~/.terraform.lock.hcl
