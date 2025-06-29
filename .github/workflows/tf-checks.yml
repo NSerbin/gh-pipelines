@@ -28,6 +28,10 @@ jobs:
         with:
           name: terraform-cache
           path: ${{ inputs.working-directory }}
+      - name: Restore executable permission to terraform providers
+        run: |
+          find ${{ inputs.working-directory }}/.terraform/providers -type f -name 'terraform-provider-*' -exec chmod +x {} \;
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3.1.2
         with:
