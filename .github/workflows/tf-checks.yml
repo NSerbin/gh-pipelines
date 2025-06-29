@@ -62,7 +62,7 @@ jobs:
               safe_value=$(printf '%s\n' "$value" | sed -e 's/[\/&]/\\&/g')
               sed -i "s|\${env:$varname}|$safe_value|g" "$file"
             done
-          done       
+          done
       - name: Terraform Format
         id: fmt
         run: terraform fmt -recursive -diff -write=true

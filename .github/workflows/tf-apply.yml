@@ -6,7 +6,7 @@ on:
       terraform_version:
         required: true
         type: string
-        default: 1.9.6
+        default: 1.12.2
 
 jobs:
   terraform_checks:
@@ -18,12 +18,19 @@ jobs:
         with:
           fetch-depth: 0
           ref: "${{ github.head_ref || github.ref }}"
+      - name: Download .terraform Artifact
+        uses: actions/download-artifact@v4.3.0
+        with:
+          name: terraform-cache
+          path: ${{ inputs.working-directory }}
+      - name: Extract Terraform cache
+        run: |
+          tar -xzf terraform-cache.tar.gz
+        working-directory: ${{ inputs.working-directory }}
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3.1.2
         with:
           terraform_version: ${{ inputs.terraform_version }}
-      - name: Install envsubst
-        run: sudo apt-get update && sudo apt-get install -y gettext
       - name: Export secret as env
         if: ${{ env.secret != 'null' }}
         run: echo "$secret" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
@@ -33,15 +40,24 @@ jobs:
         if: ${{ env.var != 'null' }}
         env:
           var: ${{ toJson(vars) }}
-        run: echo "$var" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV 
-      - name: Substitute Environment Variables with envsubst
+        run: echo "$var" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
+      - name: Replace ${env:VAR} in .tfvars with environment values
         run: |
-          for file in $(find . -name "*.*.tfvars"); do
-            envsubst < "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-          done          
-      - name: Terraform Init
-        id: init
-        run: terraform init
+          find . -name "*.tfvars" | while read file; do
+            echo "Processing $file"
+            # detect placeholders ${env:XYZ}
+            grep -o '\${env:[^}]*}' "$file" | sort -u | while read match; do
+              # extract variable name            
+              varname=$(echo "$match" | sed -E 's/\$\{env:(.*)\}/\1/')
+              value="${!varname}"
+              if [ -z "$value" ]; then
+                echo "⚠️  $varname is not set in environment. Skipping..."
+                continue
+              fi
+              safe_value=$(printf '%s\n' "$value" | sed -e 's/[\/&]/\\&/g')
+              sed -i "s|\${env:$varname}|$safe_value|g" "$file"
+            done
+          done
       - name: Download Terraform Plan
         uses: actions/download-artifact@v4
         with:

@@ -6,7 +6,7 @@ on:
       terraform_version:
         required: true
         type: string
-        default: 1.9.6
+        default: 1.12.2
 
 jobs:
   terraform_plan:
@@ -43,7 +43,7 @@ jobs:
         run: echo "$var" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
       - name: Terraform Plan
         id: plan
-        run: terraform plan -no-color -out=tfplan
+        run: terraform plan -out=tfplan
         continue-on-error: true
       # Save plan to artifacts  
       - name: Publish Terraform Plan
