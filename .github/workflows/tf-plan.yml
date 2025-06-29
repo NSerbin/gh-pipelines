@@ -18,6 +18,15 @@ jobs:
         with:
           fetch-depth: 0
           ref: "${{ github.head_ref || github.ref }}"
+      - name: Download .terraform Artifact
+        uses: actions/download-artifact@v4.3.0
+        with:
+          name: terraform-cache
+          path: ${{ inputs.working-directory }}
+      - name: Extract Terraform cache
+        run: |
+          tar -xzf terraform-cache.tar.gz
+        working-directory: ${{ inputs.working-directory }}
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3.1.2
         with:
@@ -32,9 +41,6 @@ jobs:
         env:
           var: ${{ toJson(vars) }}
         run: echo "$var" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
-      - name: Terraform Init
-        id: init
-        run: terraform init
       - name: Terraform Plan
         id: plan
         run: terraform plan -no-color -out=tfplan
