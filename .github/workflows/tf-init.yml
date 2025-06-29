@@ -54,11 +54,13 @@ jobs:
         run: |
           terraform init \
             -backend-config="conn_str=postgres://${{ secrets.BACKEND_USER }}:${{ secrets.BACKEND_PASSWORD }}@localhost:5433/${{ secrets.BACKEND_DB }}?sslmode=disable"
+      - name: Tar Terraform .terraform directory
+        run: |
+          tar -czf terraform-cache.tar.gz .terraform .terraform.lock.hcl
+        working-directory: ${{ inputs.working-directory }}
       - name: Save .terraform directory
         uses: actions/upload-artifact@v4.6.2
         with:
           name: terraform-cache
           include-hidden-files: true
-          path: |
-            .terraform/
-            .terraform.lock.hcl
+          path: ${{ inputs.working-directory }}/terraform-cache.tar.gz

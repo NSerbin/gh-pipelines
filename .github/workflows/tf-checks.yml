@@ -28,10 +28,10 @@ jobs:
         with:
           name: terraform-cache
           path: ${{ inputs.working-directory }}
-      - name: Restore executable permission to terraform providers
+      - name: Extract Terraform cache
         run: |
-          find ${{ inputs.working-directory }}/.terraform/providers -type f -name 'terraform-provider-*' -exec chmod +x {} \;
-
+          tar -xzf terraform-cache.tar.gz
+        working-directory: ${{ inputs.working-directory }}
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3.1.2
         with:
@@ -62,10 +62,7 @@ jobs:
               safe_value=$(printf '%s\n' "$value" | sed -e 's/[\/&]/\\&/g')
               sed -i "s|\${env:$varname}|$safe_value|g" "$file"
             done
-          done
-      # - name: Terraform Init
-      #   id: init
-      #   run: terraform init          
+          done       
       - name: Terraform Format
         id: fmt
         run: terraform fmt -recursive -diff -write=true
@@ -74,9 +71,9 @@ jobs:
         id: validate
         run: terraform validate -no-color
 
-      # - name: Commit Terraform FMT Changes
-      #   if: ${{ steps.fmt.outcome == 'success' }}      
-      #   id: auto-commit-action
-      #   uses: stefanzweifel/git-auto-commit-action@v6.0.1
-      #   with:
-      #     commit_message: "Auto-format Terraform files"
+      - name: Commit Terraform FMT Changes
+        if: ${{ steps.fmt.outcome == 'success' }}      
+        id: auto-commit-action
+        uses: stefanzweifel/git-auto-commit-action@v6.0.1
+        with:
+          commit_message: "Auto-format Terraform files"
