@@ -69,11 +69,11 @@ jobs:
         continue-on-error: true
       - name: Terraform Validate
         id: validate
-        run: terraform validate -no-color
+        run: terraform validate
 
-      - name: Commit Terraform FMT Changes
-        if: ${{ steps.fmt.outcome == 'success' }}      
-        id: auto-commit-action
-        uses: stefanzweifel/git-auto-commit-action@v6.0.1
-        with:
-          commit_message: "Auto-format Terraform files"
+      # - name: Commit Terraform FMT Changes
+      #   if: ${{ steps.fmt.outcome == 'success' }}
+      #   id: auto-commit-action
+      #   uses: stefanzweifel/git-auto-commit-action@v6.0.1
+      #   with:
+      #     commit_message: "Auto-format Terraform files"
