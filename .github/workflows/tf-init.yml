@@ -63,11 +63,24 @@ jobs:
           ls -la ${{ inputs.working-directory }}
           ls -la ${{ inputs.working-directory }}/.terraform || echo ".terraform no existe"
           cat ${{ inputs.working-directory }}/.terraform.lock.hcl || echo "lockfile no existe"            
+      - name: Ensure .terraform files exist before upload
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          test -d .terraform && echo ".terraform exists"
+          test -f .terraform.lock.hcl && echo ".terraform.lock.hcl exists"
 
+      # - name: Save .terraform directory
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: terraform-cache
+      #     path: |
+      #       ${{ inputs.working-directory }}/.terraform/
+      #       ${{ inputs.working-directory }}/.terraform.lock.hcl
       - name: Save .terraform directory
         uses: actions/upload-artifact@v4
+        working-directory: ${{ inputs.working-directory }}
         with:
           name: terraform-cache
           path: |
-            ${{ inputs.working-directory }}/.terraform/
-            ${{ inputs.working-directory }}/.terraform.lock.hcl
+            .terraform/
+            .terraform.lock.hcl
