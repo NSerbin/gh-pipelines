@@ -7,6 +7,10 @@ on:
         required: true
         type: string
         default: 1.12.2
+      working-directory:
+        required: false
+        type: string
+        default: '.'
 
 jobs:
 
@@ -20,7 +24,7 @@ jobs:
           fetch-depth: 0
           ref: "${{ github.head_ref || github.ref }}"
       - name: Download .terraform Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.0
         with:
           name: terraform-cache
           path: ${{ inputs.working-directory }}
@@ -28,7 +32,16 @@ jobs:
         uses: hashicorp/setup-terraform@v3.1.2
         with:
           terraform_version: ${{ inputs.terraform_version }}
-
+      - name: Export secret as env
+        if: ${{ env.secret != 'null' }}
+        run: echo "$secret" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
+        env: 
+          secret: ${{ toJson(secrets) }}
+      - name: Export vars as env
+        if: ${{ env.var != 'null' }}
+        env:
+          var: ${{ toJson(vars) }}
+        run: echo "$var" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
       # - name: Terraform Init
       #   id: init
       #   run: terraform init          
