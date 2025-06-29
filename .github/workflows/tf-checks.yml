@@ -69,7 +69,7 @@ jobs:
         continue-on-error: true
       - name: Terraform Validate
         id: validate
-        run: terraform validate
+        run: terraform validate -json
 
       # - name: Commit Terraform FMT Changes
       #   if: ${{ steps.fmt.outcome == 'success' }}
