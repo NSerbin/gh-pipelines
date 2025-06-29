@@ -33,15 +33,32 @@ jobs:
         with:
           terraform_version: ${{ inputs.terraform_version }}
       - name: Export secret as env
-        if: ${{ env.secret != 'null' }}
+        if: ${{ secrets != null }}
         run: echo "$secret" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
-        env: 
+        env:
           secret: ${{ toJson(secrets) }}
+
       - name: Export vars as env
-        if: ${{ env.var != 'null' }}
+        if: ${{ vars != null }}
         env:
           var: ${{ toJson(vars) }}
         run: echo "$var" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
+
+      - name: Replace ${env:VAR} in .tfvars with environment values
+        run: |
+          find . -name "*.tfvars" | while read file; do
+            echo "Processing $file"
+            grep -o '\${env:[^}]*}' "$file" | sort -u | while read match; do
+              varname=$(echo "$match" | sed -E 's/\$\{env:(.*)\}/\1/')
+              value="${!varname}"
+              if [ -z "$value" ]; then
+                echo "⚠️  $varname is not set in environment. Skipping..."
+                continue
+              fi
+              safe_value=$(printf '%s\n' "$value" | sed -e 's/[\/&]/\\&/g')
+              sed -i "s|\${env:$varname}|$safe_value|g" "$file"
+            done
+          done    
       # - name: Terraform Init
       #   id: init
       #   run: terraform init          
