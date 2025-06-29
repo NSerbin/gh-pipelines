@@ -77,9 +77,10 @@ jobs:
       #       ${{ inputs.working-directory }}/.terraform/
       #       ${{ inputs.working-directory }}/.terraform.lock.hcl
       - name: Save .terraform directory
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: terraform-cache
+          include-hidden-files: true
           path: |
-            ~/.terraform/
-            ~/.terraform.lock.hcl
+            .terraform/
+            .terraform.lock.hcl
