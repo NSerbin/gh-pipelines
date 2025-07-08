@@ -116,8 +116,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run TFLint
+        id: tf-lint
         run: tflint -f compact
 
-      - run: echo ${{ steps.tflint.outputs.stdout }}
-      - run: echo ${{ steps.tflint.outputs.stderr }}
-      - run: echo ${{ steps.tflint.outputs.exitcode }}
+      - run: echo ${{ steps.tf-lint.outputs.stdout }}
+      - run: echo ${{ steps.tf-lint.outputs.stderr }}
+      - run: echo ${{ steps.tflitf-lintnt.outputs.exitcode }}
