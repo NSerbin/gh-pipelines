@@ -107,11 +107,17 @@ jobs:
       - uses: terraform-linters/setup-tflint@v4
         name: Setup TFLint
         with:
+          tflint_wrapper: true
           tflint_version: ${{ inputs.tflint-version }}
+
       - name: Init TFLint
         run: tflint --init
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run TFLint
-        run: tflint -f compact          
+        run: tflint -f compact
+
+      - run: echo ${{ steps.tflint.outputs.stdout }}
+      - run: echo ${{ steps.tflint.outputs.stderr }}
+      - run: echo ${{ steps.tflint.outputs.exitcode }}
