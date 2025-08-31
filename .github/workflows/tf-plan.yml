@@ -7,6 +7,10 @@ on:
         required: true
         type: string
         default: 1.12.2
+      working-directory:
+        required: false
+        type: string
+        default: '.        
 
 jobs:
   terraform_plan:
@@ -99,7 +103,12 @@ jobs:
             --url localhost:5433 \
             --id "${{ secrets.CF_ACCESS_CLIENT_ID }}" \
             --secret "${{ secrets.CF_ACCESS_CLIENT_SECRET }}" &
-          sleep 5               
+          sleep 5    
+      - name: Terraform Init (reconfigure)
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          terraform init -reconfigure \
+            -backend-config="conn_str=postgres://${{ secrets.BACKEND_USER }}:${{ secrets.BACKEND_PASSWORD }}@localhost:5433/${{ secrets.BACKEND_DB }}?sslmode=disable"                     
       - name: Terraform Plan
         id: plan
         run: |

@@ -93,10 +93,12 @@ jobs:
           done < <(find . -name '*.tfvars' -print0)
       - name: Terraform Format
         id: fmt
+        working-directory: ${{ inputs.working-directory }}
         run: terraform fmt -recursive -diff -write=true
         continue-on-error: true
       - name: Terraform Validate
         id: validate
+        working-directory: ${{ inputs.working-directory }}
         run: terraform validate
 
       # - name: Commit Terraform FMT Changes
