@@ -99,6 +99,19 @@ jobs:
             echo "---- cloudflared.log ----"; tail -n +1 cloudflared.log || true
             exit 1
           fi
+      - name: Inspect Access HTTP (status codes)
+        run: |
+          set -euo pipefail
+          for path in "/" "/cdn-cgi/access/certs" "/cdn-cgi/trace"; do
+            echo ">>> GET https://tf-backend.nserbin.com${path}"
+            code=$(curl -sS -o /dev/null -w "%{http_code}" \
+              -H "CF-Access-Client-Id: ${{ secrets.CF_ACCESS_CLIENT_ID }}" \
+              -H "CF-Access-Client-Secret: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}" \
+              "https://tf-backend.nserbin.com${path}" || echo "000")
+            echo "HTTP ${code}"
+          done
+          echo "---- cloudflared.log (tail) ----"
+          tail -n 120 cloudflared.log || true
 
       - name: Detect remote TLS (best-effort) and surface Access errors
         id: probe
