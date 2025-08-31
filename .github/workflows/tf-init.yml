@@ -86,42 +86,55 @@ jobs:
           curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
           chmod +x cloudflared
           sudo mv cloudflared /usr/local/bin/cloudflared
-      - name: Start Cloudflare Tunnel (background, debug)
-        env:
-          CF_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      - name: Start Cloudflare Tunnel (debug)
+        shell: bash
         run: |
           set -euo pipefail
           cloudflared --version
+
+          # Levantar el proxy TCP en debug y con métricas
           nohup cloudflared access tcp \
             --hostname tf-backend.nserbin.com \
             --url localhost:5433 \
-            --id "$CF_ID" \
-            --secret "$CF_SECRET" \
-            --loglevel debug \
-            --logfile cloudflared.log \
-            > cloudflared.stdout 2>&1 &
-          echo "↪️  Waiting for local listener on 127.0.0.1:5433 ..."
-          for i in {1..40}; do
-            if (echo > /dev/tcp/127.0.0.1/5433) >/dev/null 2>&1; then
-              echo "✅ Tunnel is ready"
+            --id "${{ secrets.CF_ACCESS_CLIENT_ID }}" \
+            --secret "${{ secrets.CF_ACCESS_CLIENT_SECRET }}" \
+            --metrics 127.0.0.1:60123 \
+            --loglevel debug > cloudflared.log 2>&1 &
+
+          # Esperar a que escuche el puerto local
+          for i in {1..20}; do
+            if ss -lntp | awk '{print $4}' | grep -qE '(:|^)5433$'; then
+              echo "✅ cloudflared escuchando en localhost:5433"
               break
             fi
-            sleep 1
+            sleep 0.5
           done
-          # Mostrar procesos y sockets por si NO está listo
-          echo "---- processes ----"
-          ps aux | grep -i cloudflared | grep -v grep || true
-          echo "---- listeners ----"
-          (ss -ltnp || netstat -ltnp) 2>/dev/null | grep -E '(:5433|cloudflared)' || true
-          # Si no hay listener, fallar con logs
-          if ! (echo > /dev/tcp/127.0.0.1/5433) >/dev/null 2>&1; then
-            echo "❌ Tunnel not reachable on 5433"
-            echo "---- cloudflared.log (head) ----"; sed -n '1,200p' cloudflared.log || true
-            echo "---- cloudflared.log (tail) ----"; tail -n +200 cloudflared.log | tail -n 200 || true
-            echo "---- cloudflared stdout ----"; sed -n '1,200p' cloudflared.stdout || true
+
+          if ! ss -lntp | awk '{print $4}' | grep -qE '(:|^)5433$'; then
+            echo "❌ cloudflared NO abrió el puerto local 5433"
+            echo "---- cloudflared.log ----"
+            tail -n +1 cloudflared.log || true
             exit 1
           fi
+
+          echo "↪️  Probing TCP to local listener..."
+          if ! (timeout 3 bash -c '</dev/tcp/127.0.0.1/5433') 2>/dev/null; then
+            echo "❌ no se pudo abrir TCP localmente (listener cayó?)"
+            echo "---- cloudflared.log ----"
+            tail -n +1 cloudflared.log || true
+            exit 1
+          fi
+
+          echo "↪️  Trying psql sanity check (state tables)..."
+          sudo apt-get update -y && sudo apt-get install -y postgresql-client
+          export PGPASSWORD='${{ secrets.BACKEND_PASSWORD }}'
+          psql "host=127.0.0.1 port=5433 user=${{ secrets.BACKEND_USER }} dbname=${{ secrets.BACKEND_DB }} sslmode=disable" -c "\dt" || {
+            echo "---- cloudflared.log ----"
+            tail -n +200 cloudflared.log || true
+            exit 1
+          }
+
+          echo "✅ sanity check OK"
 
       - name: Install psql client (for smoke test)
         run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
