@@ -6,11 +6,11 @@ on:
       terraform_version:
         required: true
         type: string
-        default: 1.12.2
+        default: "1.12.2"
       working-directory:
         required: false
         type: string
-        default: '.'
+        default: "."
 
 jobs:
   terraform_init:
@@ -22,87 +22,64 @@ jobs:
         with:
           fetch-depth: 0
           ref: "${{ github.head_ref || github.ref }}"
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3.1.2
         with:
           terraform_version: ${{ inputs.terraform_version }}
+
       - name: Export secret as env
         if: ${{ env.secret != 'null' }}
         run: echo "$secret" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
         env: 
           secret: ${{ toJson(secrets) }}
+
       - name: Export vars as env
         if: ${{ env.var != 'null' }}
         env:
           var: ${{ toJson(vars) }}
         run: echo "$var" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
+
       - name: Replace ${VARS} in *.tfvars with env values
         shell: bash
         run: |
           set -euo pipefail
-
-          # Asegura que envsubst esté disponible (ya viene en ubuntu-latest; esto es por si acaso)
-          if ! command -v envsubst >/dev/null 2>&1; then
-            sudo apt-get update -y
-            sudo apt-get install -y gettext-base
-          fi
-
-          # Recorre todos los .tfvars de forma segura (maneja espacios/NUL)
+          command -v envsubst >/dev/null 2>&1 || (sudo apt-get update -y && sudo apt-get install -y gettext-base)
           while IFS= read -r -d '' file; do
             echo "🔍 Processing $file"
-
-            # Extrae placeholders tipo ${VAR} únicos (nombres válidos de env: [A-Z0-9_])
-            # Evitamos -P para no depender de PCRE en GNU grep; usamos BRE con \{,\}
             mapfile -t matches < <(grep -o '\${[A-Za-z_][A-Za-z0-9_]*}' "$file" | sort -u || true)
-
-            # Construye la lista de variables para envsubst SOLO con las que estén seteadas y no vacías
             varlist=()
             for m in "${matches[@]}"; do
-              varname="${m:2:${#m}-3}" # quita ${ y }
-              # ¿Está seteada y no vacía?
-              if [[ -n "${!varname-}" ]]; then
-                varlist+=("$m")
-              else
-                echo "⚠️  $varname is not set in environment. Skipping..."
-              fi
+              varname="${m:2:${#m}-3}"
+              if [[ -n "${!varname-}" ]]; then varlist+=("$m"); else echo "⚠️  $varname not set; skipping"; fi
             done
-
-            if [[ ${#varlist[@]} -eq 0 ]]; then
-              echo "ℹ️  No variables to substitute in $file"
-              continue
-            fi
-
-            # Ejecuta envsubst sólo con esas variables (no revela valores en logs)
-            # Usamos un tmp y luego mv para evitar archivos truncados si algo falla
-            tmp="$(mktemp)"
-            # shellcheck disable=SC2046 # queremos expandir como lista separada por espacios
-            envsubst "$(printf ' %s' "${varlist[@]}")" < "$file" > "$tmp"
-            mv "$tmp" "$file"
-
-            echo "✅ Substituted ${#varlist[@]} variable(s) in $file"
+            [[ ${#varlist[@]} -eq 0 ]] && { echo "ℹ️  Nothing to substitute in $file"; continue; }
+            tmp="$(mktemp)"; envsubst "$(printf ' %s' "${varlist[@]}")" < "$file" > "$tmp"; mv "$tmp" "$file"
+            echo "✅ Substituted ${#varlist[@]} vars in $file"
           done < <(find . -name '*.tfvars' -print0)
+
       - name: Download and install cloudflared
         run: |
-          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
           chmod +x cloudflared
           sudo mv cloudflared /usr/local/bin/cloudflared
+
       - name: Start Cloudflare Tunnel (debug)
         shell: bash
         run: |
           set -euo pipefail
           cloudflared --version
 
-          # Levantar el proxy TCP en debug (sin --metrics)
           nohup cloudflared access tcp \
-            --hostname tf-backend.nserbin.com \
-            --url localhost:5433 \
+            --hostname "tf-backend.nserbin.com" \
+            --url "localhost:5433" \
             --service-token-id "${{ secrets.CF_ACCESS_CLIENT_ID }}" \
             --service-token-secret "${{ secrets.CF_ACCESS_CLIENT_SECRET }}" \
             --log-level debug \
-            --logfile cloudflared.log > /dev/null 2>&1 &
+            --logfile cloudflared.log >/dev/null 2>&1 &
 
-          # Esperar listener local
-          for i in {1..20}; do
+          # Esperar listener local 5433
+          for i in {1..40}; do
             if ss -lnt | awk '{print $4}' | grep -qE '(:|^)5433$'; then
               echo "✅ cloudflared escuchando en localhost:5433"
               break
@@ -112,51 +89,70 @@ jobs:
 
           if ! ss -lnt | awk '{print $4}' | grep -qE '(:|^)5433$'; then
             echo "❌ cloudflared NO abrió el puerto local 5433"
-            echo "---- cloudflared.log ----"
-            tail -n +1 cloudflared.log || true
+            echo "---- cloudflared.log ----"; tail -n +1 cloudflared.log || true
             exit 1
           fi
-
 
           echo "↪️  Probing TCP to local listener..."
           if ! (timeout 3 bash -c '</dev/tcp/127.0.0.1/5433') 2>/dev/null; then
             echo "❌ no se pudo abrir TCP localmente (listener cayó?)"
-            echo "---- cloudflared.log ----"
-            tail -n +1 cloudflared.log || true
+            echo "---- cloudflared.log ----"; tail -n +1 cloudflared.log || true
             exit 1
           fi
 
-          echo "↪️  Trying psql sanity check (state tables)..."
-          sudo apt-get update -y && sudo apt-get install -y postgresql-client
-          export PGPASSWORD='${{ secrets.BACKEND_PASSWORD }}'
-          psql "host=127.0.0.1 port=5433 user=${{ secrets.BACKEND_USER }} dbname=${{ secrets.BACKEND_DB }} sslmode=disable" -c "\dt" || {
-            echo "---- cloudflared.log ----"
-            tail -n +200 cloudflared.log || true
-            exit 1
-          }
+          echo "↪️  Fingerprint del protocolo remoto (SSLRequest de PG)..."
+          python3 - <<'PY'
+          import socket, binascii, sys
+          s=socket.create_connection(("127.0.0.1",5433),timeout=4)
+          s.sendall(b"\x00\x00\x00\x08\x04\xd2\x16\x2f")  # SSLRequest
+          b=s.recv(1)
+          print("Respuesta SSL byte:", binascii.hexlify(b).decode())
+          # Guardar pista para siguientes steps
+          mode = "require" if b==b'S' else "disable"
+          open(os.environ.get("GITHUB_OUTPUT","/tmp/out"),"a").write(f"sslmode={mode}\n")
+          PY
+        id: probe
 
-          echo "✅ sanity check OK"
-
-      - name: Install psql client (for smoke test)
+      - name: Install psql client
         run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
 
-      - name: Smoke test Postgres via tunnel
+      - name: Smoke test Postgres via tunnel (auto sslmode)
         env:
-          PGURL: postgres://${{ secrets.BACKEND_USER }}:${{ secrets.BACKEND_PASSWORD }}@localhost:5433/${{ secrets.BACKEND_DB }}?sslmode=disable
+          PGUSER:  ${{ secrets.BACKEND_USER }}
+          PGPASSWORD: ${{ secrets.BACKEND_PASSWORD }}
+          PGDB:    ${{ secrets.BACKEND_DB }}
+          SSMODE:  ${{ steps.probe.outputs.sslmode || 'require' }}
         run: |
           set -euo pipefail
-          psql "$PGURL" -c "SELECT current_database(), current_user;" -q
+          echo "sslmode detectado: ${SSMODE}"
+          # Reintentos por si el backend tarda en aceptar conexiones
+          for i in {1..6}; do
+            if psql "host=127.0.0.1 port=5433 user=${PGUSER} dbname=${PGDB} sslmode=${SSMODE}" -c "SELECT version();" -q; then
+              echo "✅ psql OK"
+              exit 0
+            fi
+            echo "⏳ retry $i/6..."; sleep 2
+          done
+          echo "❌ psql falló"
+          echo "---- cloudflared.log (últimas 200 líneas) ----"
+          tail -n 200 cloudflared.log || true
+          exit 1
 
-      # ------- Re-init con backend + workspace + ver state -------
-      - name: Terraform Init (reconfigure)
+      - name: Terraform Init (using Postgres backend via tunnel)
         working-directory: ${{ inputs.working-directory }}
+        env:
+          PGUSER:  ${{ secrets.BACKEND_USER }}
+          PGPASSWORD: ${{ secrets.BACKEND_PASSWORD }}
+          PGDB:    ${{ secrets.BACKEND_DB }}
+          SSMODE:  ${{ steps.probe.outputs.sslmode || 'require' }}
         run: |
-          terraform init\
-            -backend-config="conn_str=postgres://${{ secrets.BACKEND_USER }}:${{ secrets.BACKEND_PASSWORD }}@localhost:5433/${{ secrets.BACKEND_DB }}?sslmode=disable"
+          set -euo pipefail
+          terraform init -backend-config="conn_str=postgres://${PGUSER}:${PGPASSWORD}@localhost:5433/${PGDB}?sslmode=${SSMODE}"
+
       - name: Tar Terraform .terraform directory
-        run: |
-          tar -czf terraform-cache.tar.gz .terraform .terraform.lock.hcl
         working-directory: ${{ inputs.working-directory }}
+        run: tar -czf terraform-cache.tar.gz .terraform .terraform.lock.hcl
+
       - name: Save .terraform directory
         uses: actions/upload-artifact@v4.6.2
         with:
