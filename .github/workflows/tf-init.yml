@@ -92,12 +92,28 @@ jobs:
             --hostname tf-backend.nserbin.com \
             --url localhost:5433 \
             --id "${{ secrets.CF_ACCESS_CLIENT_ID }}" \
-            --secret "${{ secrets.CF_ACCESS_CLIENT_SECRET }}" &
+            --secret "${{ secrets.CF_ACCESS_CLIENT_SECRET }}" \
+            --loglevel debug \
+            --logfile cloudflared.log &
           sleep 5
-      - name: Terraform Init
+
+      - name: Check tunnel is alive
+        run: |
+          for i in {1..20}; do
+            if (echo > /dev/tcp/127.0.0.1/5433) >/dev/null 2>&1; then
+              echo "✅ Tunnel is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "❌ Tunnel not reachable. Logs:"
+          cat cloudflared.log || true
+          exit 1
+
+      - name: Terraform Init (with backend)
         working-directory: ${{ inputs.working-directory }}
         run: |
-          terraform init \
+          terraform init -reconfigure \
             -backend-config="conn_str=postgres://${{ secrets.BACKEND_USER }}:${{ secrets.BACKEND_PASSWORD }}@localhost:5433/${{ secrets.BACKEND_DB }}?sslmode=disable"
       - name: Tar Terraform .terraform directory
         run: |
