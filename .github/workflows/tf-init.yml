@@ -73,7 +73,7 @@ jobs:
 
           nohup cloudflared access tcp \
             --hostname "tf-backend.nserbin.com" \
-            --url "localhost:5433" \
+            --url "192.168.0.4:5433" \
             --service-token-id "${{ secrets.CF_ACCESS_CLIENT_ID }}" \
             --service-token-secret "${{ secrets.CF_ACCESS_CLIENT_SECRET }}" \
             --log-level debug \
@@ -82,7 +82,7 @@ jobs:
           # Esperar listener local 5433 (hasta 20s)
           for i in {1..40}; do
             if ss -lnt | awk '{print $4}' | grep -qE '(:|^)5433$'; then
-              echo "✅ cloudflared escuchando en localhost:5433"; break
+              echo "✅ cloudflared escuchando en 192.168.0.4:5433"; break
             fi
             sleep 0.5
           done
@@ -157,7 +157,7 @@ jobs:
           SSMODE:  ${{ steps.probe.outputs.sslmode || 'require' }}
         run: |
           set -euo pipefail
-          terraform init -backend-config="conn_str=postgres://${PGUSER}:${PGPASSWORD}@localhost:5433/${PGDB}?sslmode=${SSMODE}"
+          terraform init -backend-config="conn_str=postgres://${PGUSER}:${PGPASSWORD}@192.168.0.4:5433/${PGDB}?sslmode=${SSMODE}"
 
 
       - name: Tar Terraform .terraform directory
