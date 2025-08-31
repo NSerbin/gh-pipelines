@@ -99,17 +99,11 @@ jobs:
             --url localhost:5433 \
             --id "${{ secrets.CF_ACCESS_CLIENT_ID }}" \
             --secret "${{ secrets.CF_ACCESS_CLIENT_SECRET }}" &
-          sleep 5  
-      - name: Terraform Init
-        working-directory: ${{ inputs.working-directory }}
-        run: |
-          terraform init \
-            -backend-config="conn_str=postgres://${{ secrets.BACKEND_USER }}:${{ secrets.BACKEND_PASSWORD }}@localhost:5433/${{ secrets.BACKEND_DB }}?sslmode=disable"                  
+          sleep 5               
       - name: Terraform Plan
         id: plan
         run: |
-          terraform plan -out=tfplan  \
-            -backend-config="conn_str=postgres://${{ secrets.BACKEND_USER }}:${{ secrets.BACKEND_PASSWORD }}@localhost:5433/${{ secrets.BACKEND_DB }}?sslmode=disable"
+          terraform plan -out=tfplan
         continue-on-error: true
       # Save plan to artifacts  
       - name: Publish Terraform Plan
