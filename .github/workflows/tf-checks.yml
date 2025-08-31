@@ -50,19 +50,20 @@ jobs:
         run: |
           find . -name "*.tfvars" | while read file; do
             echo "🔍 Processing $file"
-            # detect placeholders ${VAR}
             grep -o '\${[^}]\+}' "$file" | sort -u | while read match; do
-              # extract variable name (remove ${...})
               varname=$(echo "$match" | sed -E 's/^\${([^}]+)}/\1/')
               value="${!varname}"
               if [ -z "$value" ]; then
                 echo "⚠️  $varname is not set in environment. Skipping..."
                 continue
               fi
-              # escape slashes, ampersands
+              # escape replacement value
               safe_value=$(printf '%s\n' "$value" | sed -e 's/[\/&]/\\&/g')
-              echo "🔁 Replacing $match with actual value"
-              sed -i "s|\${$varname}|$safe_value|g" "$file"
+              # escape the pattern
+              pattern="\${$varname}"
+              escaped_pattern=$(printf '%s\n' "$pattern" | sed -e 's/[]\/$*.^[]/\\&/g')
+              echo "🔁 Replacing $pattern"
+              sed -i "s|$escaped_pattern|$safe_value|g" "$file"
             done
           done
       - name: Terraform Format
