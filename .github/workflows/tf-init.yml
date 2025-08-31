@@ -65,6 +65,7 @@ jobs:
           sudo mv cloudflared /usr/local/bin/cloudflared
 
       - name: Start Cloudflare Tunnel (debug)
+        id: start_cf
         shell: bash
         run: |
           set -euo pipefail
@@ -78,40 +79,51 @@ jobs:
             --log-level debug \
             --logfile cloudflared.log >/dev/null 2>&1 &
 
-          # Esperar listener local 5433
+          # Esperar listener local 5433 (hasta 20s)
           for i in {1..40}; do
             if ss -lnt | awk '{print $4}' | grep -qE '(:|^)5433$'; then
-              echo "✅ cloudflared escuchando en localhost:5433"
-              break
+              echo "✅ cloudflared escuchando en localhost:5433"; break
             fi
             sleep 0.5
           done
 
           if ! ss -lnt | awk '{print $4}' | grep -qE '(:|^)5433$'; then
-            echo "❌ cloudflared NO abrió el puerto local 5433"
+            echo "❌ cloudflared NO abrió el puerto 5433"
             echo "---- cloudflared.log ----"; tail -n +1 cloudflared.log || true
             exit 1
           fi
 
-          echo "↪️  Probing TCP to local listener..."
+          echo "↪️  Probing TCP a 127.0.0.1:5433..."
           if ! (timeout 3 bash -c '</dev/tcp/127.0.0.1/5433') 2>/dev/null; then
-            echo "❌ no se pudo abrir TCP localmente (listener cayó?)"
+            echo "❌ no se pudo abrir TCP localmente"
             echo "---- cloudflared.log ----"; tail -n +1 cloudflared.log || true
             exit 1
           fi
 
-          echo "↪️  Fingerprint del protocolo remoto (SSLRequest de PG)..."
-          python3 - <<'PY'
-          import socket, binascii, sys
-          s=socket.create_connection(("127.0.0.1",5433),timeout=4)
-          s.sendall(b"\x00\x00\x00\x08\x04\xd2\x16\x2f")  # SSLRequest
-          b=s.recv(1)
-          print("Respuesta SSL byte:", binascii.hexlify(b).decode())
-          # Guardar pista para siguientes steps
-          mode = "require" if b==b'S' else "disable"
-          open(os.environ.get("GITHUB_OUTPUT","/tmp/out"),"a").write(f"sslmode={mode}\n")
-          PY
+      - name: Detect remote TLS (best-effort) and surface Access errors
         id: probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          SSMODE=require
+          echo "↪️  Fingerprint del protocolo remoto (SSLRequest de PG, tolerante a fallos)..."
+          python3 - <<'PY'
+          import socket, binascii, os
+          try:
+            s=socket.create_connection(("127.0.0.1",5433),timeout=4)
+            s.sendall(b"\x00\x00\x00\x08\x04\xd2\x16\x2f")  # SSLRequest
+            b=s.recv(1)
+            print("Respuesta SSL byte:", binascii.hexlify(b).decode())
+            mode = "require" if b==b'S' else "disable"
+          except Exception as e:
+            print("⚠️  SSL probe no concluyente:", e)
+            mode = "require"
+          with open(os.environ.get("GITHUB_OUTPUT","/tmp/out"),"a") as f:
+            f.write(f"sslmode={mode}\n")
+          PY
+          echo "🔎 Posibles errores en cloudflared.log:"
+          # Señales típicas de fallo de Access/origen
+          grep -Ei 'unauth|forbid|403|denied|token|policy|origin|connect|handshake|tls|postgres|pg' cloudflared.log | tail -n 50 || true
 
       - name: Install psql client
         run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
@@ -124,14 +136,12 @@ jobs:
           SSMODE:  ${{ steps.probe.outputs.sslmode || 'require' }}
         run: |
           set -euo pipefail
-          echo "sslmode detectado: ${SSMODE}"
-          # Reintentos por si el backend tarda en aceptar conexiones
-          for i in {1..6}; do
-            if psql "host=127.0.0.1 port=5433 user=${PGUSER} dbname=${PGDB} sslmode=${SSMODE}" -c "SELECT version();" -q; then
-              echo "✅ psql OK"
-              exit 0
+          echo "sslmode detectado/forzado: ${SSMODE}"
+          for i in {1..8}; do
+            if psql "host=127.0.0.1 port=5433 user=${PGUSER} dbname=${PGDB} sslmode=${SSMODE}" -c "SELECT 1;" -q; then
+              echo "✅ psql OK"; exit 0
             fi
-            echo "⏳ retry $i/6..."; sleep 2
+            echo "⏳ retry $i/8..."; sleep 2
           done
           echo "❌ psql falló"
           echo "---- cloudflared.log (últimas 200 líneas) ----"
@@ -148,6 +158,7 @@ jobs:
         run: |
           set -euo pipefail
           terraform init -backend-config="conn_str=postgres://${PGUSER}:${PGPASSWORD}@localhost:5433/${PGDB}?sslmode=${SSMODE}"
+
 
       - name: Tar Terraform .terraform directory
         working-directory: ${{ inputs.working-directory }}
