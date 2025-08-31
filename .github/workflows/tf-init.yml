@@ -92,30 +92,31 @@ jobs:
           set -euo pipefail
           cloudflared --version
 
-          # Levantar el proxy TCP en debug y con métricas
+          # Levantar el proxy TCP en debug (sin --metrics)
           nohup cloudflared access tcp \
             --hostname tf-backend.nserbin.com \
             --url localhost:5433 \
-            --id "${{ secrets.CF_ACCESS_CLIENT_ID }}" \
-            --secret "${{ secrets.CF_ACCESS_CLIENT_SECRET }}" \
-            --metrics 127.0.0.1:60123 \
-            --loglevel debug > cloudflared.log 2>&1 &
+            --service-token-id "${{ secrets.CF_ACCESS_CLIENT_ID }}" \
+            --service-token-secret "${{ secrets.CF_ACCESS_CLIENT_SECRET }}" \
+            --log-level debug \
+            --logfile cloudflared.log > /dev/null 2>&1 &
 
-          # Esperar a que escuche el puerto local
+          # Esperar listener local
           for i in {1..20}; do
-            if ss -lntp | awk '{print $4}' | grep -qE '(:|^)5433$'; then
+            if ss -lnt | awk '{print $4}' | grep -qE '(:|^)5433$'; then
               echo "✅ cloudflared escuchando en localhost:5433"
               break
             fi
             sleep 0.5
           done
 
-          if ! ss -lntp | awk '{print $4}' | grep -qE '(:|^)5433$'; then
+          if ! ss -lnt | awk '{print $4}' | grep -qE '(:|^)5433$'; then
             echo "❌ cloudflared NO abrió el puerto local 5433"
             echo "---- cloudflared.log ----"
             tail -n +1 cloudflared.log || true
             exit 1
           fi
+
 
           echo "↪️  Probing TCP to local listener..."
           if ! (timeout 3 bash -c '</dev/tcp/127.0.0.1/5433') 2>/dev/null; then
