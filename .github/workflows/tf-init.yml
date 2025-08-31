@@ -36,6 +36,51 @@ jobs:
         env:
           var: ${{ toJson(vars) }}
         run: echo "$var" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
+      - name: Replace ${VARS} in *.tfvars with env values
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Asegura que envsubst esté disponible (ya viene en ubuntu-latest; esto es por si acaso)
+          if ! command -v envsubst >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y gettext-base
+          fi
+
+          # Recorre todos los .tfvars de forma segura (maneja espacios/NUL)
+          while IFS= read -r -d '' file; do
+            echo "🔍 Processing $file"
+
+            # Extrae placeholders tipo ${VAR} únicos (nombres válidos de env: [A-Z0-9_])
+            # Evitamos -P para no depender de PCRE en GNU grep; usamos BRE con \{,\}
+            mapfile -t matches < <(grep -o '\${[A-Za-z_][A-Za-z0-9_]*}' "$file" | sort -u || true)
+
+            # Construye la lista de variables para envsubst SOLO con las que estén seteadas y no vacías
+            varlist=()
+            for m in "${matches[@]}"; do
+              varname="${m:2:${#m}-3}" # quita ${ y }
+              # ¿Está seteada y no vacía?
+              if [[ -n "${!varname-}" ]]; then
+                varlist+=("$m")
+              else
+                echo "⚠️  $varname is not set in environment. Skipping..."
+              fi
+            done
+
+            if [[ ${#varlist[@]} -eq 0 ]]; then
+              echo "ℹ️  No variables to substitute in $file"
+              continue
+            fi
+
+            # Ejecuta envsubst sólo con esas variables (no revela valores en logs)
+            # Usamos un tmp y luego mv para evitar archivos truncados si algo falla
+            tmp="$(mktemp)"
+            # shellcheck disable=SC2046 # queremos expandir como lista separada por espacios
+            envsubst "$(printf ' %s' "${varlist[@]}")" < "$file" > "$tmp"
+            mv "$tmp" "$file"
+
+            echo "✅ Substituted ${#varlist[@]} variable(s) in $file"
+          done < <(find . -name '*.tfvars' -print0)
       - name: Download and install cloudflared
         run: |
           curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
