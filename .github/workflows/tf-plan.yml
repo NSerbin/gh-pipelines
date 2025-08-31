@@ -103,7 +103,21 @@ jobs:
             --url localhost:5433 \
             --id "${{ secrets.CF_ACCESS_CLIENT_ID }}" \
             --secret "${{ secrets.CF_ACCESS_CLIENT_SECRET }}" &
-          sleep 5    
+          sleep 5
+
+
+          for i in {1..40}; do
+            if (echo > /dev/tcp/127.0.0.1/5433) >/dev/null 2>&1; then
+              echo "✅ Tunnel is ready on 5433"
+              break
+            fi
+            sleep 1
+            if [[ $i -eq 40 ]]; then
+              echo "❌ Tunnel not ready. cloudflared log:"
+              sed -n '1,200p' cloudflared.log || true
+              exit 1
+            fi
+          done           
       - name: Terraform Init (reconfigure)
         working-directory: ${{ inputs.working-directory }}
         run: |
