@@ -87,28 +87,43 @@ jobs:
           chmod +x cloudflared
           sudo mv cloudflared /usr/local/bin/cloudflared
       - name: Start Cloudflare Tunnel (background, debug)
+        env:
+          CF_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           set -euo pipefail
+          cloudflared --version
           nohup cloudflared access tcp \
             --hostname tf-backend.nserbin.com \
             --url localhost:5433 \
-            --id $"{{ secrets.CF_ACCESS_CLIENT_SECRET }} "\
-            --secret "${{ secrets.CF_ACCESS_CLIENT_ID }}" \
+            --id "$CF_ID" \
+            --secret "$CF_SECRET" \
             --loglevel debug \
             --logfile cloudflared.log \
-            > /dev/null 2>&1 &
-          # Espera a que escuche 5433
+            > cloudflared.stdout 2>&1 &
+          echo "↪️  Waiting for local listener on 127.0.0.1:5433 ..."
           for i in {1..40}; do
             if (echo > /dev/tcp/127.0.0.1/5433) >/dev/null 2>&1; then
-              echo "✅ Tunnel is ready on 5433"; exit 0
+              echo "✅ Tunnel is ready"
+              break
             fi
             sleep 1
           done
-          echo "❌ Tunnel not ready. Dumping cloudflared.log:"; sed -n '1,200p' cloudflared.log || true
-          exit 1
+          # Mostrar procesos y sockets por si NO está listo
+          echo "---- processes ----"
+          ps aux | grep -i cloudflared | grep -v grep || true
+          echo "---- listeners ----"
+          (ss -ltnp || netstat -ltnp) 2>/dev/null | grep -E '(:5433|cloudflared)' || true
+          # Si no hay listener, fallar con logs
+          if ! (echo > /dev/tcp/127.0.0.1/5433) >/dev/null 2>&1; then
+            echo "❌ Tunnel not reachable on 5433"
+            echo "---- cloudflared.log (head) ----"; sed -n '1,200p' cloudflared.log || true
+            echo "---- cloudflared.log (tail) ----"; tail -n +200 cloudflared.log | tail -n 200 || true
+            echo "---- cloudflared stdout ----"; sed -n '1,200p' cloudflared.stdout || true
+            exit 1
+          fi
 
-      # ------- Smoke test a la DB (asegura conectividad real) -------
-      - name: Install psql client
+      - name: Install psql client (for smoke test)
         run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
 
       - name: Smoke test Postgres via tunnel
@@ -116,8 +131,7 @@ jobs:
           PGURL: postgres://${{ secrets.BACKEND_USER }}:${{ secrets.BACKEND_PASSWORD }}@localhost:5433/${{ secrets.BACKEND_DB }}?sslmode=disable
         run: |
           set -euo pipefail
-          echo "↪️  Listing state-like tables (sanity check)..."
-          psql "$PGURL" -c "SELECT schemaname, relname FROM pg_catalog.pg_tables WHERE relname ILIKE '%state%';" -q || { echo "❌ cannot query DB"; exit 1; }
+          psql "$PGURL" -c "SELECT current_database(), current_user;" -q
 
       # ------- Re-init con backend + workspace + ver state -------
       - name: Terraform Init (reconfigure)
