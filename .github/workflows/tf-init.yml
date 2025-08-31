@@ -92,8 +92,8 @@ jobs:
           nohup cloudflared access tcp \
             --hostname tf-backend.nserbin.com \
             --url localhost:5433 \
-            --id ${{ secrets.CF_ACCESS_CLIENT_SECRET }} \
-            --secret {{ secrets.CF_ACCESS_CLIENT_ID }} \
+            --id $"{{ secrets.CF_ACCESS_CLIENT_SECRET }} "\
+            --secret "${{ secrets.CF_ACCESS_CLIENT_ID }}" \
             --loglevel debug \
             --logfile cloudflared.log \
             > /dev/null 2>&1 &
