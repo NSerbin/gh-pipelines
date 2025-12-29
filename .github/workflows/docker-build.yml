@@ -3,211 +3,353 @@ name: docker-build
 on:
   workflow_call:
     inputs:
+      # ===== Registry =====
       registry:
-        description: 'Select the registry to log in to'
+        description: "Registry: dockerhub | ghcr | gitlab | ecr"
         type: string
-        default: "dockerhub"
-      docker-tag:
-        description: Tag for Docker Image
-        type: string
-        default: latest
-      dockerfile-path:
-        description: Path of the dockerfile
-        type: string
-        default: "Dockerfile"
-      build-context:
-        description: Context to build Dockerfile
-        type: string
-        default: "."
-      docker-architecture:
-        description: Architecture type for Docker Image
-        type: string
-        default: linux/arm/v7
-      repository-name:
-        description: Name of the Repository
-        type: string
+        default: "ghcr"
       registry-type:
-        description: Name of the Repository
+        description: "ECR: private | public"
         type: string
         default: "private"
-      aws-access-keys:
-        description: Setting if will use AWS Credentials or Role
+
+      repository-name:
+        description: "Image name (without registry/owner). Example: freedium-web"
+        type: string
+        required: true
+
+      docker-tag:
+        description: "Tag for Docker Image"
+        type: string
+        default: "latest"
+
+      docker-architecture:
+        description: "Platforms for buildx, ex: linux/amd64,linux/arm64"
+        type: string
+        default: "linux/amd64"
+
+      # ===== Build inputs =====
+      build-context:
+        description: "Build context path (relative to WORKDIR). Default '.'"
+        type: string
+        default: "."
+
+      dockerfile-path:
+        description: "Dockerfile directory path OR file path (relative to WORKDIR). Default 'Dockerfile'"
+        type: string
+        default: "Dockerfile"
+
+      # ===== Source selection (NEW) =====
+      clone-source:
+        description: "If true, clone source-repo and build from it. If false, build from current repo checkout."
         type: boolean
         default: false
-      aws-access-role:
-        description: Setting if will use AWS Credentials or Role
+
+      source-repo:
+        description: "ORG/REPO to clone when clone-source=true"
+        type: string
+        default: ""
+
+      source-ref:
+        description: "Git ref to checkout when clone-source=true (branch/tag/sha). Default main"
+        type: string
+        default: "main"
+
+      # ===== Dockerfile resolution (NEW) =====
+      dockerfile-mode:
+        description: "auto | source | fallback. auto: use source Dockerfile if present else fallback."
+        type: string
+        default: "auto"
+
+      fallback-dockerfile:
+        description: "Path to fallback Dockerfile (relative to this repo workspace). Used when dockerfile-mode=fallback or auto+missing."
+        type: string
+        default: ""
+
+      # ===== Lint controls =====
+      linter-fail:
+        description: "If true, linter does NOT fail the workflow (no-fail)."
         type: boolean
-        default: false      
-      node-version:    
-        description: Setting NODE Version
+        default: false
+
+      linter-verbose:
+        description: "Hadolint verbose"
+        type: boolean
+        default: false
+
+      linter-format:
+        description: "Hadolint format: tty | json | ... "
+        type: string
+        default: "tty"
+
+      # ===== (kept) =====
+      node-version:
+        description: "Node version build-arg (only used if Dockerfile uses it)"
         type: string
         default: "20"
-      linter-fail:
-        description: Setting if wanna have Error fail or not
-        type: 'string'
-        default: 'false'
-      linter-verbose:
-        description: Setting to get more info from the linter job
-        type: 'string'
-        default: 'false'
-      linter-format:
-        description: Setting to get more info from the linter job
-        type: 'string'
-        default: 'tty'
 
+      aws-access-keys:
+        description: "Use AWS access keys for ECR"
+        type: boolean
+        default: false
+
+      aws-access-role:
+        description: "Use AWS role for ECR"
+        type: boolean
+        default: false
+
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
+      GITLAB_USERNAME:
+        required: false
+      GITLAB_PASSWORD:
+        required: false
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+      AWS_ROLE_ARN:
+        required: false
+      AWS_ROLE_NAME:
+        required: false
+      REGION:
+        required: false
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
-  linter:
+  docker:
     runs-on: ubuntu-latest
+
+    outputs:
+      image_ref: ${{ steps.meta.outputs.image_ref }}
+      resolved_dockerfile: ${{ steps.resolve.outputs.dockerfile }}
+      resolved_context: ${{ steps.resolve.outputs.context }}
+
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4.1.6
+      # 1) Checkout "this" repo (github-pipelines consumer repo when called)
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: "${{ github.head_ref || github.ref }}"
+
+      # 2) Optionally clone external source
+      - name: Clone source repository
+        if: ${{ inputs.clone-source }}
+        run: |
+          set -euo pipefail
+          if [ -z "${{ inputs.source-repo }}" ]; then
+            echo "source-repo is required when clone-source=true"
+            exit 1
+          fi
+          rm -rf src
+          git clone "https://github.com/${{ inputs.source-repo }}.git" src
+          cd src
+          git checkout "${{ inputs.source-ref }}"
+          git rev-parse --short HEAD
+
+      # 3) Resolve WORKDIR for build (.)
+      # - If clone-source: build uses ./src
+      # - else: build uses .
+      - name: Resolve build context + dockerfile
+        id: resolve
+        run: |
+          set -euo pipefail
+
+          if [ "${{ inputs.clone-source }}" = "true" ]; then
+            WORKDIR="src"
+          else
+            WORKDIR="."
+          fi
+
+          # normalize dockerfile path: accept either "Dockerfile" or "path/to/Dockerfile" or "dir"
+          DF_IN="${{ inputs.dockerfile-path }}"
+          if [ -d "${WORKDIR}/${DF_IN}" ]; then
+            DF_PATH="${WORKDIR}/${DF_IN}/Dockerfile"
+          else
+            # if user passed a file path, keep it
+            if [[ "${DF_IN}" == */Dockerfile ]] || [[ "${DF_IN}" == "Dockerfile" ]]; then
+              DF_PATH="${WORKDIR}/${DF_IN}"
+            else
+              # treat as file relative to workdir
+              DF_PATH="${WORKDIR}/${DF_IN}"
+            fi
+          fi
+
+          CONTEXT_PATH="${WORKDIR}/${{ inputs.build-context }}"
+
+          # Determine if source Dockerfile exists
+          SOURCE_DF_EXISTS="false"
+          if [ -f "${DF_PATH}" ]; then
+            SOURCE_DF_EXISTS="true"
+          fi
+
+          MODE="${{ inputs.dockerfile-mode }}"
+          FALLBACK="${{ inputs.fallback-dockerfile }}"
+
+          if [ "${MODE}" = "source" ]; then
+            if [ "${SOURCE_DF_EXISTS}" != "true" ]; then
+              echo "dockerfile-mode=source but Dockerfile not found at ${DF_PATH}"
+              exit 1
+            fi
+            FINAL_DF="${DF_PATH}"
+          elif [ "${MODE}" = "fallback" ]; then
+            if [ -z "${FALLBACK}" ] || [ ! -f "${FALLBACK}" ]; then
+              echo "dockerfile-mode=fallback but fallback-dockerfile is missing or not found: ${FALLBACK}"
+              exit 1
+            fi
+            FINAL_DF="${FALLBACK}"
+          else
+            # auto
+            if [ "${SOURCE_DF_EXISTS}" = "true" ]; then
+              FINAL_DF="${DF_PATH}"
+            else
+              if [ -z "${FALLBACK}" ] || [ ! -f "${FALLBACK}" ]; then
+                echo "dockerfile-mode=auto and source Dockerfile missing at ${DF_PATH}, and fallback-dockerfile not provided/found."
+                exit 1
+              fi
+              FINAL_DF="${FALLBACK}"
+            fi
+          fi
+
+          echo "context=${CONTEXT_PATH}" >> "$GITHUB_OUTPUT"
+          echo "dockerfile=${FINAL_DF}" >> "$GITHUB_OUTPUT"
+
+          echo "Resolved context: ${CONTEXT_PATH}"
+          echo "Resolved dockerfile: ${FINAL_DF}"
+
+      # 4) Lint Dockerfile (fixed path + hadolint config)
       - name: Lint Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
         with:
-          dockerfile: ${{ inputs.dockerfile-path }}/Dockerfile
+          dockerfile: ${{ steps.resolve.outputs.dockerfile }}
           no-fail: ${{ inputs.linter-fail }}
           verbose: ${{ inputs.linter-verbose }}
           format: ${{ inputs.linter-format }}
+
       - name: Append Linter Output to GitHub Summary
         if: always()
         run: |
           echo "## Dockerfile Linter Output" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "${{ env.HADOLINT_RESULTS }}" >> $GITHUB_STEP_SUMMARY
+          echo "${HADOLINT_RESULTS:-<no output>}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
-
-  build:
-    name: Build Docker Image
-    runs-on: ubuntu-latest
-    needs: linter
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4.1.6
-        with:
-          fetch-depth: 0
-          ref: "${{ github.head_ref || github.ref }}"
-      - name: Export secret as env
-        if: ${{ env.secret != 'null' }}
-        run: echo "$secret" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
-        env: 
-          secret: ${{ toJson(secrets) }}          
-      - name: Export vars as env
-        if: ${{ env.var != 'null' }}
-        env:
-          var: ${{ toJson(vars) }}
-        run: echo "$var" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> .env
+      # 5) Set registry login variables (fixed registry values)
       - name: Set registry login variables
         id: registry_login
         run: |
-          if [ "${{ inputs.registry }}" == "dockerhub" ]; then
+          set -euo pipefail
+          if [ "${{ inputs.registry }}" = "dockerhub" ]; then
             echo "registry=docker.io" >> $GITHUB_OUTPUT
             echo "username=${{ secrets.DOCKERHUB_USERNAME }}" >> $GITHUB_OUTPUT
             echo "password=${{ secrets.DOCKERHUB_TOKEN }}" >> $GITHUB_OUTPUT
-          elif [ "${{ inputs.registry }}" == "ghcr" ]; then
+          elif [ "${{ inputs.registry }}" = "ghcr" ]; then
             echo "registry=ghcr.io" >> $GITHUB_OUTPUT
             echo "username=${{ github.actor }}" >> $GITHUB_OUTPUT
             echo "password=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_OUTPUT
-          elif [ "${{ inputs.registry }}" == "gitlab" ]; then
+          elif [ "${{ inputs.registry }}" = "gitlab" ]; then
             echo "registry=registry.gitlab.com" >> $GITHUB_OUTPUT
             echo "username=${{ secrets.GITLAB_USERNAME }}" >> $GITHUB_OUTPUT
             echo "password=${{ secrets.GITLAB_PASSWORD }}" >> $GITHUB_OUTPUT
+          elif [ "${{ inputs.registry }}" = "ecr" ]; then
+            # ECR login done later
+            echo "registry=ecr" >> $GITHUB_OUTPUT
+            echo "username=" >> $GITHUB_OUTPUT
+            echo "password=" >> $GITHUB_OUTPUT
+          else
+            echo "Unknown registry: ${{ inputs.registry }}"
+            exit 1
           fi
+
+      # 6) QEMU + buildx
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3.0.0
+        uses: docker/setup-qemu-action@v3
         with:
-          image: tonistiigi/binfmt:latest
           platforms: ${{ inputs.docker-architecture }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          platforms: ${{ inputs.docker-architecture }}          
+
+      # 7) Login (non-ECR)
       - name: Login to the selected registry
-        uses: docker/login-action@v3
         if: ${{ inputs.registry != 'ecr' }}
+        uses: docker/login-action@v3
         with:
           registry: ${{ steps.registry_login.outputs.registry }}
           username: ${{ steps.registry_login.outputs.username }}
           password: ${{ steps.registry_login.outputs.password }}
-      - name: Build, tag, and push image to DockerHUB
-        if: ${{ inputs.registry == 'dockerhub' }}
-        uses: docker/build-push-action@v6.1.0
-        with:
-          context: ${{ inputs.build-context }}
-          file: ${{ inputs.dockerfile-path }}/Dockerfile
-          build-args: |
-            NODE_VERSION=${{ inputs.node-version }}
-          platforms: ${{ inputs.docker-architecture }}
-          provenance: false
-          push: true
-          tags: |
-            ${{ steps.registry_login.outputs.username }}/${{ inputs.repository-name }}:${{ inputs.docker-tag }}
-      - name: Build, tag, and push image to Github Registry
-        if: ${{ inputs.registry == 'ghcr.io' }}
-        uses: docker/build-push-action@v6.1.0
-        with:
-          context: ${{ inputs.build-context }}
-          file: ${{ inputs.dockerfile-path }}/Dockerfile
-          build-args: |
-            NODE_VERSION=${{inputs.node_version}}
-          platforms: ${{ inputs.docker-architecture }}
-          provenance: false
-          push: true
-          tags: |
-            ghcr.io/${{ steps.registry_login.outputs.username }}/${{ inputs.repository-name }}:${{ inputs.docker-tag }}
-      - name: Build, tag, and push image to Gitlab Registry
-        if: ${{ inputs.registry == 'gitlab' }}
-        uses: docker/build-push-action@v6.1.0
-        with:
-          context: ${{ inputs.build-context }}
-          file: ${{ inputs.dockerfile-path }}/Dockerfile
-          build-args: |
-            NODE_VERSION=${{inputs.node_version}}
-          platforms: ${{ inputs.docker-architecture }}
-          provenance: false
-          push: true
-          tags: |
-            ${{ steps.registry_login.outputs.username }}/${{ inputs.repository-name }}:${{ inputs.docker-tag }}
 
-      ## AMAZON ECR
+      # 8) ECR auth (if used)
       - name: Configure AWS credentials with Access Keys
+        if: ${{ inputs.registry == 'ecr' && inputs.aws-access-keys && !inputs.aws-access-role }}
         uses: aws-actions/configure-aws-credentials@v4
-        if: ${{ inputs.registry == 'ecr' && inputs.aws-access-keys == true && inputs.aws-access-role == false }}
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.REGION }}
+
       - name: Configure AWS credentials with Role
+        if: ${{ inputs.registry == 'ecr' && !inputs.aws-access-keys && inputs.aws-access-role }}
         uses: aws-actions/configure-aws-credentials@v4
-        if: ${{ inputs.registry == 'ecr' && inputs.aws-access-keys == false && inputs.aws-access-role == true }}
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: ${{ secrets.AWS_ROLE_NAME }}
           aws-region: ${{ secrets.REGION }}
+
       - name: Login to Amazon ECR
         if: ${{ inputs.registry == 'ecr' && inputs.registry-type == 'private' }}
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
+
       - name: Login to Amazon ECR Public
         if: ${{ inputs.registry == 'ecr' && inputs.registry-type == 'public' }}
         id: login-ecr-public
         uses: aws-actions/amazon-ecr-login@v2
         with:
           registry-type: public
-      - name: Build, tag, and push image to ECR
-        if: ${{ inputs.registry == 'ecr' }}
-        uses: docker/build-push-action@v6.1.0
-        with:
-          context: ${{ inputs.build-context }}
-          file: ${{ inputs.dockerfile-path }}/Dockerfile
-          build-args: |
-            NODE_VERSION=${{ inputs.node-version }}
-          platforms: ${{ inputs.docker-architecture }}
-          provenance: false
-          push: true
-          tags: |
-            ${{ steps.registry_login.outputs.username }}/${{ inputs.repository-name }}:${{ inputs.docker-tag }}
+
+      # 9) Build & push (single implementation, no duplicated steps)
+      - name: Build & push image
+        id: meta
+        run: |
+          set -euo pipefail
+
+          REG="${{ inputs.registry }}"
+          TAG="${{ inputs.docker-tag }}"
+          REPO="${{ inputs.repository-name }}"
+          PLAT="${{ inputs.docker-architecture }}"
+          CONTEXT="${{ steps.resolve.outputs.context }}"
+          DF="${{ steps.resolve.outputs.dockerfile }}"
+
+          if [ "${REG}" = "dockerhub" ]; then
+            IMAGE="${{ steps.registry_login.outputs.username }}/${REPO}:${TAG}"
+          elif [ "${REG}" = "ghcr" ]; then
+            IMAGE="ghcr.io/${{ steps.registry_login.outputs.username }}/${REPO}:${TAG}"
+          elif [ "${REG}" = "gitlab" ]; then
+            IMAGE="${{ steps.registry_login.outputs.username }}/${REPO}:${TAG}"
+          elif [ "${REG}" = "ecr" ]; then
+            # For ECR, caller should pass repository-name as full ECR repo if needed.
+            # You can also enhance later to derive registry from login step output.
+            IMAGE="${REPO}:${TAG}"
+          else
+            echo "Unknown registry: ${REG}"
+            exit 1
+          fi
+
+          echo "Building image: ${IMAGE}"
+          echo "image_ref=${IMAGE}" >> "$GITHUB_OUTPUT"
+
+          docker buildx build \
+            --platform "${PLAT}" \
+            --file "${DF}" \
+            --provenance=false \
+            --build-arg "NODE_VERSION=${{ inputs.node-version }}" \
+            --push \
+            -t "${IMAGE}" \
+            "${CONTEXT}"
