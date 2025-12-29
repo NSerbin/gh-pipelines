@@ -27,28 +27,43 @@ on:
         default: true
         type: boolean
     secrets:
-      repo_token:
-        description: "GitHub App installation token con write en target_repo"
+      SYNC_APP_ID:
         required: true
+      SYNC_APP_PRIVATE_KEY:
+        required: true
+
+permissions:
+  contents: write
 
 jobs:
   sync:
     runs-on: ubuntu-latest
 
     steps:
+      # 1️⃣ Generate Github App token
+      - name: Mint GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.SYNC_APP_ID }}
+          private-key: ${{ secrets.SYNC_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: Configure git identity
         run: |
           git config --global user.name  "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      # 2️⃣ Clone Destiny Repo
       - name: Clone target repo
         run: |
           set -euo pipefail
-          git clone "https://x-access-token:${{ secrets.repo_token }}@github.com/${{ inputs.target_repo }}.git" repo
+          git clone "https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ inputs.target_repo }}.git" repo
           cd repo
           git fetch --all --prune
           git checkout -B "${{ inputs.target_branch }}" "origin/${{ inputs.target_branch }}"
 
+      # 3️⃣ Add upstream & fetch
       - name: Add upstream & fetch
         run: |
           set -euo pipefail
@@ -62,25 +77,28 @@ jobs:
             git fetch upstream --prune
           fi
 
+      # 4️⃣ Overwrite Destiny Repo
       - name: HARD RESET target branch to upstream (overwrite)
         run: |
           set -euo pipefail
           cd repo
 
           git show-ref --verify --quiet "refs/remotes/upstream/${{ inputs.upstream_branch }}" || {
-            echo "Upstream branch upstream/${{ inputs.upstream_branch }} no existe (revisá upstream_branch)"
+            echo "Upstream branch upstream/${{ inputs.upstream_branch }} no existe"
             exit 1
           }
 
           git reset --hard "upstream/${{ inputs.upstream_branch }}"
           git clean -fdx
 
+      # 5️⃣ Push branch
       - name: Push branch (force-with-lease)
         run: |
           set -euo pipefail
           cd repo
           git push origin "${{ inputs.target_branch }}" --force-with-lease
 
+      # 6️⃣ Push tags
       - name: Push tags
         if: ${{ inputs.fetch_tags }}
         run: |
