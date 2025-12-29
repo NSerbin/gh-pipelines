@@ -1,0 +1,93 @@
+name: Reusable - Upstream Sync
+
+on:
+  workflow_call:
+    inputs:
+      target_repo:
+        description: "Repo destino en GitHub (ORG/REPO)"
+        required: true
+        type: string
+      upstream_url:
+        description: "Git URL del upstream (Codeberg/GitHub/etc.)"
+        required: true
+        type: string
+      upstream_branch:
+        description: "Branch upstream (ej: main/master)"
+        required: false
+        default: "main"
+        type: string
+      target_branch:
+        description: "Branch destino (ej: main)"
+        required: false
+        default: "main"
+        type: string
+      fetch_tags:
+        description: "Traer y pushear tags"
+        required: false
+        default: true
+        type: boolean
+    secrets:
+      repo_token:
+        description: "GitHub App installation token con write en target_repo"
+        required: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure git identity
+        run: |
+          git config --global user.name  "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Clone target repo
+        run: |
+          set -euo pipefail
+          git clone "https://x-access-token:${{ secrets.repo_token }}@github.com/${{ inputs.target_repo }}.git" repo
+          cd repo
+          git fetch --all --prune
+          git checkout -B "${{ inputs.target_branch }}" "origin/${{ inputs.target_branch }}"
+
+      - name: Add upstream & fetch
+        run: |
+          set -euo pipefail
+          cd repo
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream "${{ inputs.upstream_url }}"
+
+          if [ "${{ inputs.fetch_tags }}" = "true" ]; then
+            git fetch upstream --prune --tags
+          else
+            git fetch upstream --prune
+          fi
+
+      - name: HARD RESET target branch to upstream (overwrite)
+        run: |
+          set -euo pipefail
+          cd repo
+
+          UP="${{ inputs.upstream_branch }}"
+          TARGET="${{ inputs.target_branch }}"
+
+          git show-ref --verify --quiet "refs/remotes/upstream/${UP}" || {
+            echo "Upstream branch upstream/${UP} no existe (revisá upstream_branch)"
+            exit 1
+          }
+
+          git reset --hard "upstream/${UP}"
+
+          git clean -fdx
+
+      - name: Push branch (force-with-lease)
+        run: |
+          set -euo pipefail
+          cd repo
+          git push origin "${{ inputs.target_branch }}" --force-with-lease
+
+      - name: Push tags
+        if: ${{ inputs.fetch_tags }}
+        run: |
+          set -euo pipefail
+          cd repo
+          git push origin --tags
