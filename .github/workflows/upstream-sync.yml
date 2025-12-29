@@ -22,7 +22,7 @@ on:
         default: "main"
         type: string
       fetch_tags:
-        description: "Traer y pushear tags"
+        description: "Pullear y pushear tags"
         required: false
         default: true
         type: boolean
@@ -67,16 +67,12 @@ jobs:
           set -euo pipefail
           cd repo
 
-          UP="${{ inputs.upstream_branch }}"
-          TARGET="${{ inputs.target_branch }}"
-
-          git show-ref --verify --quiet "refs/remotes/upstream/${UP}" || {
-            echo "Upstream branch upstream/${UP} no existe (revisá upstream_branch)"
+          git show-ref --verify --quiet "refs/remotes/upstream/${{ inputs.upstream_branch }}" || {
+            echo "Upstream branch upstream/${{ inputs.upstream_branch }} no existe (revisá upstream_branch)"
             exit 1
           }
 
-          git reset --hard "upstream/${UP}"
-
+          git reset --hard "upstream/${{ inputs.upstream_branch }}"
           git clean -fdx
 
       - name: Push branch (force-with-lease)
