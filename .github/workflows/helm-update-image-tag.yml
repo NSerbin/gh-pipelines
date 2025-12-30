@@ -1,0 +1,116 @@
+name: Reusable - Helm Update Image Tag
+
+on:
+  workflow_call:
+    inputs:
+      charts_repo:
+        description: "Repo destino con charts (ORG/REPO)"
+        type: string
+        required: true
+
+      charts_ref:
+        description: "Branch a modificar"
+        type: string
+        default: main
+
+      chart_path:
+        description: "Path al chart dentro del repo (ej: charts/freedium)"
+        type: string
+        required: true
+
+      values_file:
+        description: "Values file relativo al chart (ej: values.yaml)"
+        type: string
+        default: values.yaml
+
+      image_tag:
+        description: "Nuevo tag (ej: sha-affd228)"
+        type: string
+        required: true
+
+      image_repository:
+        description: "Opcional: setear image.repository también"
+        type: string
+        default: ""
+
+      update_app_version:
+        description: "Si true, setea Chart.yaml appVersion = image_tag"
+        type: boolean
+        default: false
+
+      commit_message:
+        description: "Mensaje del commit"
+        type: string
+        default: "chore(helm): bump image tag"
+
+    secrets:
+      repo_token:
+        description: "Token con write al repo de charts (GitHub App installation token)"
+        required: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout charts repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.charts_repo }}
+          ref: ${{ inputs.charts_ref }}
+          token: ${{ secrets.repo_token }}
+          fetch-depth: 0
+
+      - name: Install yq
+        run: |
+          set -euo pipefail
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+
+      - name: Update values.yaml image.tag (and optional repository)
+        run: |
+          set -euo pipefail
+
+          CHART_DIR="${{ inputs.chart_path }}"
+          VALUES="${CHART_DIR}/${{ inputs.values_file }}"
+
+          test -f "$VALUES" || { echo "Values file not found: $VALUES"; exit 1; }
+
+          yq -i '.image.tag = strenv(NEW_TAG)' "$VALUES"
+
+          if [ -n "${{ inputs.image_repository }}" ]; then
+            yq -i '.image.repository = strenv(NEW_REPO)' "$VALUES"
+          fi
+        env:
+          NEW_TAG: ${{ inputs.image_tag }}
+          NEW_REPO: ${{ inputs.image_repository }}
+
+      - name: Update Chart.yaml appVersion (optional)
+        if: ${{ inputs.update_app_version }}
+        run: |
+          set -euo pipefail
+          CHART="${{ inputs.chart_path }}/Chart.yaml"
+          test -f "$CHART" || { echo "Chart.yaml not found: $CHART"; exit 1; }
+          yq -i '.appVersion = strenv(NEW_TAG)' "$CHART"
+        env:
+          NEW_TAG: ${{ inputs.image_tag }}
+
+      - name: Commit & push if changed
+        run: |
+          set -euo pipefail
+          git status --porcelain
+
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add "${{ inputs.chart_path }}/Chart.yaml" "${{ inputs.chart_path }}/${{ inputs.values_file }}" 2>/dev/null || true
+          git commit -m "${{ inputs.commit_message }}: ${{ inputs.image_tag }}"
+          git push origin "${{ inputs.charts_ref }}"
