@@ -7,17 +7,14 @@ on:
         description: "Repo destino con charts (ORG/REPO)"
         type: string
         required: true
-
       charts_ref:
         description: "Branch a modificar"
         type: string
         default: main
-
       chart_path:
         description: "Path al chart dentro del repo (ej: charts/freedium)"
         type: string
         required: true
-
       values_file:
         description: "Values file relativo al chart (ej: values.yaml)"
         type: string
@@ -27,25 +24,23 @@ on:
         description: "Nuevo tag (ej: sha-affd228)"
         type: string
         required: true
-
       image_repository:
         description: "Opcional: setear image.repository también"
         type: string
         default: ""
-
       update_app_version:
         description: "Si true, setea Chart.yaml appVersion = image_tag"
         type: boolean
         default: false
-
       commit_message:
-        description: "Mensaje del commit"
+        description: "Mensaje base del commit"
         type: string
         default: "chore(helm): bump image tag"
 
     secrets:
-      repo_token:
-        description: "Token con write al repo de charts (GitHub App installation token)"
+      SYNC_APP_ID:
+        required: true
+      SYNC_APP_PRIVATE_KEY:
         required: true
 
 jobs:
@@ -55,12 +50,20 @@ jobs:
       contents: write
 
     steps:
+      - name: Mint GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.SYNC_APP_ID }}
+          private-key: ${{ secrets.SYNC_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: Checkout charts repo
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.charts_repo }}
           ref: ${{ inputs.charts_ref }}
-          token: ${{ secrets.repo_token }}
+          token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
       - name: Install yq
@@ -101,7 +104,6 @@ jobs:
       - name: Commit & push if changed
         run: |
           set -euo pipefail
-          git status --porcelain
 
           if [ -z "$(git status --porcelain)" ]; then
             echo "No changes to commit."
@@ -111,6 +113,10 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add "${{ inputs.chart_path }}/Chart.yaml" "${{ inputs.chart_path }}/${{ inputs.values_file }}" 2>/dev/null || true
+          git add "${{ inputs.chart_path }}/${{ inputs.values_file }}" || true
+          if [ "${{ inputs.update_app_version }}" = "true" ]; then
+            git add "${{ inputs.chart_path }}/Chart.yaml" || true
+          fi
+
           git commit -m "${{ inputs.commit_message }}: ${{ inputs.image_tag }}"
           git push origin "${{ inputs.charts_ref }}"
