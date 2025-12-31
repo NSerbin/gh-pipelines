@@ -1,5 +1,4 @@
-# .github/workflows/helm-update-image-tag.yml
-name: Reusable - Helm Update Image Tag(s)
+name: Reusable - Helm Update Values
 
 on:
   workflow_call:
@@ -11,45 +10,34 @@ on:
       charts_ref:
         description: "Branch a modificar"
         type: string
-        default: main
+        default: "main"
       chart_path:
         description: "Path al chart dentro del repo (ej: charts/freedium)"
         type: string
         required: true
-      values_file:
-        description: "Values file relativo al chart (ej: values.yaml)"
-        type: string
-        default: values.yaml
-
-      # Tag común que normalmente querés aplicar a varias imágenes (web + caddy)
-      image_tag:
-        description: "Nuevo tag (ej: sha-affd228)"
-        type: string
-        required: true
-
-      # Lista de updates declarativa. Ej:
-      # [
-      #   {"path": ".image.repository", "value": "ghcr.io/nserbin/freedium-web"},
-      #   {"path": ".image.tag", "valueFrom": "tag"},
-      #   {"path": ".caddy.image.repository", "value": "ghcr.io/nserbin/freedium-caddy"},
-      #   {"path": ".caddy.image.tag", "valueFrom": "tag"}
-      # ]
-      updates_json:
-        description: "JSON list of yq updates ({path, value|valueFrom})"
-        type: string
-        required: true
-
-      # IMPORTANT: workflow_call no soporta boolean “real” confiable cuando viene de outputs.
-      # Usamos string "true"/"false".
-      update_app_version:
-        description: "Si 'true', setea Chart.yaml appVersion = image_tag"
-        type: string
-        default: "false"
-
       commit_message:
         description: "Mensaje base del commit"
         type: string
-        default: "chore(helm): bump images"
+        default: "chore(helm): update values"
+
+      updates_json:
+        description: |
+          JSON array de updates. Ej:
+          [
+            {"file":"values.yaml","path":".image.tag","value":"sha-xxxx","type":"str"},
+            {"file":"values.yaml","path":".caddy.image.tag","value":"sha-xxxx","type":"str"}
+          ]
+        type: string
+        required: true
+
+      update_app_version:
+        description: "Si true, setea Chart.yaml appVersion = app_version_value"
+        type: boolean
+        default: false
+      app_version_value:
+        description: "Valor a setear en appVersion cuando update_app_version=true"
+        type: string
+        default: ""
 
     secrets:
       SYNC_APP_ID:
@@ -80,86 +68,70 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
-      - name: Install yq
+      - name: Install yq + jq
         run: |
           set -euo pipefail
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
           yq --version
+          jq --version
 
-      - name: Apply updates to values.yaml
+      - name: Apply updates_json to values files
         env:
           CHART_DIR: ${{ inputs.chart_path }}
-          VALUES_FILE: ${{ inputs.values_file }}
-          TAG: ${{ inputs.image_tag }}
-          UPDATES_JSON: ${{ inputs.updates_json }}
+          UPDATES: ${{ inputs.updates_json }}
         run: |
           set -euo pipefail
 
-          VALUES="${CHART_DIR}/${VALUES_FILE}"
-          test -f "$VALUES" || { echo "Values file not found: $VALUES"; exit 1; }
+          echo "$UPDATES" | jq -e . >/dev/null
 
-          python - <<'PY'
-          import json, os, subprocess, sys
+          echo "$UPDATES" | jq -c '.[]' | while read -r item; do
+            file="$(echo "$item" | jq -r '.file')"
+            path="$(echo "$item" | jq -r '.path')"
+            value="$(echo "$item" | jq -r '.value')"
+            type="$(echo "$item" | jq -r '.type // "str"')"
 
-          values = os.environ["VALUES"]
-          tag = os.environ["TAG"]
-          updates_json = os.environ["UPDATES_JSON"]
+            target="${CHART_DIR}/${file}"
+            test -f "$target" || { echo "File not found: $target"; exit 1; }
 
-          try:
-            updates = json.loads(updates_json)
-          except Exception as e:
-            print("Invalid updates_json:", e, file=sys.stderr)
-            print(updates_json, file=sys.stderr)
-            sys.exit(1)
+            echo "Updating $target: $path = $value ($type)"
 
-          if not isinstance(updates, list) or not updates:
-            print("updates_json must be a non-empty JSON list", file=sys.stderr)
-            sys.exit(1)
-
-          for u in updates:
-            if not isinstance(u, dict) or "path" not in u:
-              print("Each update must be an object with 'path'", file=sys.stderr)
-              sys.exit(1)
-
-            path = u["path"]
-
-            if u.get("valueFrom") == "tag":
-              val = tag
-            else:
-              val = u.get("value", "")
-
-            env = os.environ.copy()
-            env["VAL"] = str(val)
-
-            # yq -i '.image.tag = strenv(VAL)' values.yaml
-            expr = f'{path} = strenv(VAL)'
-            subprocess.check_call(["yq", "-i", expr, values], env=env)
-
-          print("Applied updates OK:")
-          for u in updates:
-            print(" -", u)
-          PY
+            case "$type" in
+              str)
+                VALUE="$value" yq -i "$path = strenv(VALUE)" "$target"
+                ;;
+              bool)
+                if [ "$value" = "true" ] || [ "$value" = "false" ]; then
+                  VALUE="$value" yq -i "$path = (env(VALUE) == \"true\")" "$target"
+                else
+                  echo "Invalid bool value for $path: $value"
+                  exit 1
+                fi
+                ;;
+              int)
+                VALUE="$value" yq -i "$path = (env(VALUE) | tonumber)" "$target"
+                ;;
+              *)
+                echo "Unknown type '$type' for $path"
+                exit 1
+                ;;
+            esac
+          done
 
       - name: Update Chart.yaml appVersion (optional)
-        if: ${{ inputs.update_app_version == 'true' }}
+        if: ${{ inputs.update_app_version }}
         env:
-          CHART_DIR: ${{ inputs.chart_path }}
-          TAG: ${{ inputs.image_tag }}
+          NEW_VER: ${{ inputs.app_version_value }}
         run: |
           set -euo pipefail
-          CHART="${CHART_DIR}/Chart.yaml"
+          test -n "$NEW_VER" || { echo "app_version_value is required when update_app_version=true"; exit 1; }
+
+          CHART="${{ inputs.chart_path }}/Chart.yaml"
           test -f "$CHART" || { echo "Chart.yaml not found: $CHART"; exit 1; }
-          yq -i '.appVersion = strenv(TAG)' "$CHART"
+
+          VER="$NEW_VER" yq -i '.appVersion = strenv(VER)' "$CHART"
 
       - name: Commit & push if changed
-        env:
-          REF: ${{ inputs.charts_ref }}
-          CHART_DIR: ${{ inputs.chart_path }}
-          VALUES_FILE: ${{ inputs.values_file }}
-          UPDATE_APP_VERSION: ${{ inputs.update_app_version }}
-          MSG: ${{ inputs.commit_message }}
-          TAG: ${{ inputs.image_tag }}
         run: |
           set -euo pipefail
 
@@ -168,13 +140,9 @@ jobs:
             exit 0
           fi
 
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name  "sync-repos-automation[bot]"
+          git config user.email "sync-repos-automation[bot]@users.noreply.github.com"
 
-          git add "${CHART_DIR}/${VALUES_FILE}" || true
-          if [ "${UPDATE_APP_VERSION}" = "true" ]; then
-            git add "${CHART_DIR}/Chart.yaml" || true
-          fi
-
-          git commit -m "${MSG}: ${TAG}"
-          git push origin "${REF}"
+          git add "${{ inputs.chart_path }}" || true
+          git commit -m "${{ inputs.commit_message }}"
+          git push origin "${{ inputs.charts_ref }}"
