@@ -1,4 +1,5 @@
-name: Reusable - Helm Update Image Tag
+# .github/workflows/helm-update-image-tag.yml
+name: Reusable - Helm Update Image Tag(s)
 
 on:
   workflow_call:
@@ -20,25 +21,35 @@ on:
         type: string
         default: values.yaml
 
+      # Tag común que normalmente querés aplicar a varias imágenes (web + caddy)
       image_tag:
         description: "Nuevo tag (ej: sha-affd228)"
         type: string
         required: true
-      image_repository:
-        description: "Opcional: setear image.repository también"
-        type: string
-        default: ""
 
-      # IMPORTANT: keep as string for compatibility with yq/outputs
+      # Lista de updates declarativa. Ej:
+      # [
+      #   {"path": ".image.repository", "value": "ghcr.io/nserbin/freedium-web"},
+      #   {"path": ".image.tag", "valueFrom": "tag"},
+      #   {"path": ".caddy.image.repository", "value": "ghcr.io/nserbin/freedium-caddy"},
+      #   {"path": ".caddy.image.tag", "valueFrom": "tag"}
+      # ]
+      updates_json:
+        description: "JSON list of yq updates ({path, value|valueFrom})"
+        type: string
+        required: true
+
+      # IMPORTANT: workflow_call no soporta boolean “real” confiable cuando viene de outputs.
+      # Usamos string "true"/"false".
       update_app_version:
-        description: "string 'true'/'false' - if true, set Chart.yaml appVersion = image_tag"
+        description: "Si 'true', setea Chart.yaml appVersion = image_tag"
         type: string
         default: "false"
 
       commit_message:
         description: "Mensaje base del commit"
         type: string
-        default: "chore(helm): bump image tag"
+        default: "chore(helm): bump images"
 
     secrets:
       SYNC_APP_ID:
@@ -76,35 +87,79 @@ jobs:
           sudo chmod +x /usr/local/bin/yq
           yq --version
 
-      - name: Update values.yaml image.tag (and optional repository)
+      - name: Apply updates to values.yaml
+        env:
+          CHART_DIR: ${{ inputs.chart_path }}
+          VALUES_FILE: ${{ inputs.values_file }}
+          TAG: ${{ inputs.image_tag }}
+          UPDATES_JSON: ${{ inputs.updates_json }}
         run: |
           set -euo pipefail
 
-          CHART_DIR="${{ inputs.chart_path }}"
-          VALUES="${CHART_DIR}/${{ inputs.values_file }}"
-
+          VALUES="${CHART_DIR}/${VALUES_FILE}"
           test -f "$VALUES" || { echo "Values file not found: $VALUES"; exit 1; }
 
-          yq -i '.image.tag = strenv(NEW_TAG)' "$VALUES"
+          python - <<'PY'
+          import json, os, subprocess, sys
 
-          if [ -n "${{ inputs.image_repository }}" ]; then
-            yq -i '.image.repository = strenv(NEW_REPO)' "$VALUES"
-          fi
-        env:
-          NEW_TAG: ${{ inputs.image_tag }}
-          NEW_REPO: ${{ inputs.image_repository }}
+          values = os.environ["VALUES"]
+          tag = os.environ["TAG"]
+          updates_json = os.environ["UPDATES_JSON"]
+
+          try:
+            updates = json.loads(updates_json)
+          except Exception as e:
+            print("Invalid updates_json:", e, file=sys.stderr)
+            print(updates_json, file=sys.stderr)
+            sys.exit(1)
+
+          if not isinstance(updates, list) or not updates:
+            print("updates_json must be a non-empty JSON list", file=sys.stderr)
+            sys.exit(1)
+
+          for u in updates:
+            if not isinstance(u, dict) or "path" not in u:
+              print("Each update must be an object with 'path'", file=sys.stderr)
+              sys.exit(1)
+
+            path = u["path"]
+
+            if u.get("valueFrom") == "tag":
+              val = tag
+            else:
+              val = u.get("value", "")
+
+            env = os.environ.copy()
+            env["VAL"] = str(val)
+
+            # yq -i '.image.tag = strenv(VAL)' values.yaml
+            expr = f'{path} = strenv(VAL)'
+            subprocess.check_call(["yq", "-i", expr, values], env=env)
+
+          print("Applied updates OK:")
+          for u in updates:
+            print(" -", u)
+          PY
 
       - name: Update Chart.yaml appVersion (optional)
         if: ${{ inputs.update_app_version == 'true' }}
+        env:
+          CHART_DIR: ${{ inputs.chart_path }}
+          TAG: ${{ inputs.image_tag }}
         run: |
           set -euo pipefail
-          CHART="${{ inputs.chart_path }}/Chart.yaml"
+          CHART="${CHART_DIR}/Chart.yaml"
           test -f "$CHART" || { echo "Chart.yaml not found: $CHART"; exit 1; }
-          yq -i '.appVersion = strenv(NEW_TAG)' "$CHART"
-        env:
-          NEW_TAG: ${{ inputs.image_tag }}
+          yq -i '.appVersion = strenv(TAG)' "$CHART"
 
       - name: Commit & push if changed
+        env:
+          REF: ${{ inputs.charts_ref }}
+          CHART_DIR: ${{ inputs.chart_path }}
+          VALUES_FILE: ${{ inputs.values_file }}
+          UPDATE_APP_VERSION: ${{ inputs.update_app_version }}
+          MSG: ${{ inputs.commit_message }}
+          TAG: ${{ inputs.image_tag }}
         run: |
           set -euo pipefail
 
@@ -116,10 +171,10 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add "${{ inputs.chart_path }}/${{ inputs.values_file }}" || true
-          if [ "${{ inputs.update_app_version }}" = "true" ]; then
-            git add "${{ inputs.chart_path }}/Chart.yaml" || true
+          git add "${CHART_DIR}/${VALUES_FILE}" || true
+          if [ "${UPDATE_APP_VERSION}" = "true" ]; then
+            git add "${CHART_DIR}/Chart.yaml" || true
           fi
 
-          git commit -m "${{ inputs.commit_message }}: ${{ inputs.image_tag }}"
-          git push origin "${{ inputs.charts_ref }}"
+          git commit -m "${MSG}: ${TAG}"
+          git push origin "${REF}"
