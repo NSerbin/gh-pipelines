@@ -28,10 +28,13 @@ on:
         description: "Opcional: setear image.repository también"
         type: string
         default: ""
+
+      # IMPORTANT: keep as string for compatibility with yq/outputs
       update_app_version:
-        description: "Si true, setea Chart.yaml appVersion = image_tag"
-        type: boolean
-        default: false
+        description: "string 'true'/'false' - if true, set Chart.yaml appVersion = image_tag"
+        type: string
+        default: "false"
+
       commit_message:
         description: "Mensaje base del commit"
         type: string
@@ -92,7 +95,7 @@ jobs:
           NEW_REPO: ${{ inputs.image_repository }}
 
       - name: Update Chart.yaml appVersion (optional)
-        if: ${{ inputs.update_app_version }}
+        if: ${{ inputs.update_app_version == 'true' }}
         run: |
           set -euo pipefail
           CHART="${{ inputs.chart_path }}/Chart.yaml"

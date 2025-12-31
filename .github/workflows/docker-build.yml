@@ -3,7 +3,6 @@ name: docker-build
 on:
   workflow_call:
     inputs:
-      # ===== Registry =====
       registry:
         description: "Registry: dockerhub | ghcr | gitlab | ecr"
         type: string
@@ -34,7 +33,6 @@ on:
         type: string
         default: "linux/amd64"
 
-      # ===== Build inputs =====
       build-context:
         description: "Build context path (relative to WORKDIR). Default '.'"
         type: string
@@ -45,7 +43,6 @@ on:
         type: string
         default: "Dockerfile"
 
-      # ===== Source selection =====
       clone-source:
         description: "If true, clone source-repo and build from it"
         type: boolean
@@ -61,7 +58,6 @@ on:
         type: string
         default: "main"
 
-      # ===== Dockerfile resolution =====
       dockerfile-mode:
         description: "auto | source | fallback"
         type: string
@@ -72,11 +68,11 @@ on:
         type: string
         default: ""
 
-      # ===== Lint controls =====
+      # Keep as string for backwards compat
       linter-fail:
-        description: "Do not fail workflow on lint errors"
-        type: boolean
-        default: false
+        description: "Do not fail workflow on lint errors (string 'true'/'false')"
+        type: string
+        default: "false"
 
       linter-verbose:
         description: "Hadolint verbose"
@@ -88,7 +84,6 @@ on:
         type: string
         default: "tty"
 
-      # ===== Misc =====
       node-version:
         description: "Node version build-arg"
         type: string
@@ -170,15 +165,17 @@ jobs:
           FALLBACK="${{ inputs.fallback-dockerfile }}"
 
           if [ "$MODE" = "source" ] && [ "$SOURCE_EXISTS" != true ]; then
-            echo "Dockerfile not found in source"
+            echo "dockerfile-mode=source but Dockerfile not found at $DF_PATH"
             exit 1
           fi
 
           if [ "$MODE" = "fallback" ]; then
+            [ -n "$FALLBACK" ] || { echo "fallback-dockerfile required"; exit 1; }
             DF_PATH="$FALLBACK"
           fi
 
           if [ "$MODE" = "auto" ] && [ "$SOURCE_EXISTS" != true ]; then
+            [ -n "$FALLBACK" ] || { echo "auto mode: source missing and fallback-dockerfile not set"; exit 1; }
             DF_PATH="$FALLBACK"
           fi
 
@@ -189,13 +186,15 @@ jobs:
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: ${{ steps.resolve.outputs.dockerfile }}
-          no-fail: ${{ inputs.linter-fail }}
+          # convert string -> boolean
+          no-fail: ${{ inputs.linter-fail == 'true' }}
           verbose: ${{ inputs.linter-verbose }}
           format: ${{ inputs.linter-format }}
 
       - name: Set registry login variables
         id: registry
         run: |
+          set -euo pipefail
           if [ "${{ inputs.registry }}" = "dockerhub" ]; then
             echo "registry=docker.io" >> $GITHUB_OUTPUT
             echo "username=${{ secrets.DOCKERHUB_USERNAME }}" >> $GITHUB_OUTPUT
@@ -208,6 +207,9 @@ jobs:
             echo "registry=registry.gitlab.com" >> $GITHUB_OUTPUT
             echo "username=${{ secrets.GITLAB_USERNAME }}" >> $GITHUB_OUTPUT
             echo "password=${{ secrets.GITLAB_PASSWORD }}" >> $GITHUB_OUTPUT
+          else
+            echo "Unsupported registry: ${{ inputs.registry }}"
+            exit 1
           fi
 
       - name: Set up QEMU
