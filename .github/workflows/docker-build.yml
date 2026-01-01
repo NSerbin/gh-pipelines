@@ -88,6 +88,27 @@ on:
         type: string
         default: "20"
 
+      # ===== NEW: inject static assets in CI (wrapper build) =====
+      inject-static:
+        description: "true/false (string). If true, builds base image then wraps it adding static files"
+        type: string
+        default: "false"
+
+      inject-static-source-dir:
+        description: "Path (relative to WORKDIR root) containing static files to inject. Example: caddy/static"
+        type: string
+        default: ""
+
+      inject-static-target-dir:
+        description: "Where to stage the static folder name inside wrapper context. Default: static"
+        type: string
+        default: "static"
+
+      inject-static-dest-path:
+        description: "Destination path inside image. Default: /static"
+        type: string
+        default: "/static"
+
     secrets:
       DOCKERHUB_USERNAME:
         required: false
@@ -116,7 +137,7 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     outputs:
-      image_ref: ${{ steps.build.outputs.image_ref }}
+      image_ref: ${{ steps.out.outputs.image_ref }}
       resolved_dockerfile: ${{ steps.resolve.outputs.dockerfile }}
       resolved_context: ${{ steps.resolve.outputs.context }}
 
@@ -150,7 +171,6 @@ jobs:
             WORKDIR="src"
           fi
 
-          # normalize dockerfile-path
           DF_IN="${{ inputs.dockerfile-path }}"
           if [ -z "$DF_IN" ] || [ "$DF_IN" = "null" ]; then
             DF_IN="Dockerfile"
@@ -239,15 +259,14 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Login to registry
-        if: ${{ inputs.registry != 'ecr' }}
         uses: docker/login-action@v3
         with:
           registry: ${{ steps.reg.outputs.registry }}
           username: ${{ steps.reg.outputs.username }}
           password: ${{ steps.reg.outputs.password }}
 
-      - name: Build & push image
-        id: build
+      - name: Compute image refs
+        id: img
         run: |
           set -euo pipefail
 
@@ -260,18 +279,34 @@ jobs:
             if [ -z "$OWNER" ] || [ "$OWNER" = "null" ]; then
               OWNER="${{ github.repository_owner }}"
             fi
-            IMAGE="ghcr.io/${OWNER}/${NAME}:${TAG}"
+            IMAGE_FINAL="ghcr.io/${OWNER}/${NAME}:${TAG}"
+            IMAGE_BASE="ghcr.io/${OWNER}/${NAME}:${TAG}-base"
           elif [ "$REG" = "dockerhub" ]; then
-            IMAGE="${{ steps.reg.outputs.username }}/${NAME}:${TAG}"
+            IMAGE_FINAL="${{ steps.reg.outputs.username }}/${NAME}:${TAG}"
+            IMAGE_BASE="${{ steps.reg.outputs.username }}/${NAME}:${TAG}-base"
           elif [ "$REG" = "gitlab" ]; then
-            IMAGE="${{ steps.reg.outputs.username }}/${NAME}:${TAG}"
+            IMAGE_FINAL="${{ steps.reg.outputs.username }}/${NAME}:${TAG}"
+            IMAGE_BASE="${{ steps.reg.outputs.username }}/${NAME}:${TAG}-base"
           else
             echo "Unsupported registry: $REG"
             exit 1
           fi
 
+          echo "image_final=${IMAGE_FINAL}" >> "$GITHUB_OUTPUT"
+          echo "image_base=${IMAGE_BASE}" >> "$GITHUB_OUTPUT"
+
+          echo "Final image: ${IMAGE_FINAL}"
+          echo "Base  image: ${IMAGE_BASE}"
+
+      - name: Build & push image (normal)
+        id: build_normal
+        if: ${{ inputs.inject-static != 'true' }}
+        run: |
+          set -euo pipefail
+
+          IMAGE="${{ steps.img.outputs.image_final }}"
+
           echo "Building image: $IMAGE"
-          echo "image_ref=$IMAGE" >> "$GITHUB_OUTPUT"
 
           docker buildx build \
             --platform "${{ inputs.docker-architecture }}" \
@@ -281,3 +316,76 @@ jobs:
             --push \
             -t "$IMAGE" \
             "${{ steps.resolve.outputs.context }}"
+
+      - name: Build & push BASE image (inject-static)
+        id: build_base
+        if: ${{ inputs.inject-static == 'true' }}
+        run: |
+          set -euo pipefail
+
+          IMAGE_BASE="${{ steps.img.outputs.image_base }}"
+
+          echo "Building BASE image: $IMAGE_BASE"
+
+          docker buildx build \
+            --platform "${{ inputs.docker-architecture }}" \
+            --file "${{ steps.resolve.outputs.dockerfile }}" \
+            --build-arg NODE_VERSION="${{ inputs.node-version }}" \
+            --provenance=false \
+            --push \
+            -t "$IMAGE_BASE" \
+            "${{ steps.resolve.outputs.context }}"
+
+      - name: Build & push FINAL image with static injected (wrapper)
+        id: build_wrapper
+        if: ${{ inputs.inject-static == 'true' }}
+        run: |
+          set -euo pipefail
+
+          WORKDIR="."
+          if [ "${{ inputs.clone-source }}" = "true" ]; then
+            WORKDIR="src"
+          fi
+
+          SRC_DIR="${{ inputs.inject-static-source-dir }}"
+          if [ -z "$SRC_DIR" ] || [ "$SRC_DIR" = "null" ]; then
+            echo "inject-static-source-dir is required when inject-static=true"
+            exit 1
+          fi
+
+          FULL_SRC="${WORKDIR}/${SRC_DIR}"
+          if [ ! -d "$FULL_SRC" ]; then
+            echo "inject-static-source-dir not found: ${FULL_SRC}"
+            exit 1
+          fi
+
+          STAGE=".ci-wrapper"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE/${{ inputs.inject-static-target-dir }}"
+
+          echo "Copying static from: ${FULL_SRC} -> ${STAGE}/${{ inputs.inject-static-target-dir }}/"
+          cp -a "${FULL_SRC}/." "$STAGE/${{ inputs.inject-static-target-dir }}/"
+
+          IMAGE_BASE="${{ steps.img.outputs.image_base }}"
+          IMAGE_FINAL="${{ steps.img.outputs.image_final }}"
+          DEST="${{ inputs.inject-static-dest-path }}"
+
+          cat > "$STAGE/Dockerfile" <<EOF
+          FROM ${IMAGE_BASE}
+          COPY ${{ inputs.inject-static-target-dir }}/ ${DEST}/
+          EOF
+
+          echo "Building FINAL image (wrapper): ${IMAGE_FINAL}"
+          docker buildx build \
+            --platform "${{ inputs.docker-architecture }}" \
+            --file "$STAGE/Dockerfile" \
+            --provenance=false \
+            --push \
+            -t "${IMAGE_FINAL}" \
+            "$STAGE"
+
+      - name: Set output image ref
+        id: out
+        run: |
+          set -euo pipefail
+          echo "image_ref=${{ steps.img.outputs.image_final }}" >> "$GITHUB_OUTPUT"
