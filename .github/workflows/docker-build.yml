@@ -4,88 +4,70 @@ on:
   workflow_call:
     inputs:
       registry:
-        description: "Registry: dockerhub | ghcr | gitlab | ecr"
         type: string
         default: "ghcr"
 
       registry-type:
-        description: "ECR: private | public"
         type: string
         default: "private"
 
       ghcr-owner:
-        description: "Owner/org for GHCR images (e.g. nserbin)"
         type: string
         default: ""
 
       repository-name:
-        description: "Image name (without registry/owner). Example: freedium-web"
         type: string
         required: true
 
       docker-tag:
-        description: "Tag for Docker Image"
         type: string
         default: "latest"
 
       docker-architecture:
-        description: "Platforms for buildx, ex: linux/amd64,linux/arm64"
         type: string
         default: "linux/amd64"
 
       build-context:
-        description: "Build context path (relative to WORKDIR). Default '.'"
         type: string
         default: "."
 
       dockerfile-path:
-        description: "Dockerfile directory path OR file path (relative to WORKDIR). Default 'Dockerfile'"
         type: string
         default: "Dockerfile"
 
       clone-source:
-        description: "If true, clone source-repo and build from it"
         type: boolean
         default: false
 
       source-repo:
-        description: "ORG/REPO to clone when clone-source=true"
         type: string
         default: ""
 
       source-ref:
-        description: "Git ref to checkout when clone-source=true"
         type: string
         default: "main"
 
       dockerfile-mode:
-        description: "auto | source | fallback"
         type: string
         default: "auto"
 
       fallback-dockerfile:
-        description: "Fallback Dockerfile path"
         type: string
         default: ""
 
-      # Keep as string for backwards compat
       linter-fail:
-        description: "Do not fail workflow on lint errors (string 'true'/'false')"
         type: string
         default: "false"
 
       linter-verbose:
-        description: "Hadolint verbose"
         type: boolean
         default: false
 
       linter-format:
-        description: "Hadolint format"
         type: string
         default: "tty"
 
       node-version:
-        description: "Node version build-arg"
         type: string
         default: "20"
 
@@ -140,6 +122,10 @@ jobs:
         if: ${{ inputs.clone-source }}
         run: |
           set -euo pipefail
+          if [ -z "${{ inputs.source-repo }}" ]; then
+            echo "source-repo is required when clone-source=true"
+            exit 1
+          fi
           rm -rf src
           git clone "https://github.com/${{ inputs.source-repo }}.git" src
           cd src
@@ -153,41 +139,64 @@ jobs:
           WORKDIR="."
           [ "${{ inputs.clone-source }}" = "true" ] && WORKDIR="src"
 
+          # Normalize dockerfile-path (avoid null/empty)
           DF_IN="${{ inputs.dockerfile-path }}"
-          [ -d "${WORKDIR}/${DF_IN}" ] && DF_PATH="${WORKDIR}/${DF_IN}/Dockerfile" || DF_PATH="${WORKDIR}/${DF_IN}"
+          if [ -z "${DF_IN}" ] || [ "${DF_IN}" = "null" ]; then
+            DF_IN="Dockerfile"
+          fi
 
-          CONTEXT_PATH="${WORKDIR}/${{ inputs.build-context }}"
+          if [ -d "${WORKDIR}/${DF_IN}" ]; then
+            DF_PATH="${WORKDIR}/${DF_IN}/Dockerfile"
+          else
+            DF_PATH="${WORKDIR}/${DF_IN}"
+          fi
+
+          CONTEXT_IN="${{ inputs.build-context }}"
+          if [ -z "${CONTEXT_IN}" ] || [ "${CONTEXT_IN}" = "null" ]; then
+            CONTEXT_IN="."
+          fi
+          CONTEXT_PATH="${WORKDIR}/${CONTEXT_IN}"
 
           SOURCE_EXISTS=false
           [ -f "$DF_PATH" ] && SOURCE_EXISTS=true
 
           MODE="${{ inputs.dockerfile-mode }}"
+          [ -z "$MODE" ] && MODE="auto"
+          [ "$MODE" = "null" ] && MODE="auto"
+
           FALLBACK="${{ inputs.fallback-dockerfile }}"
 
           if [ "$MODE" = "source" ] && [ "$SOURCE_EXISTS" != true ]; then
-            echo "dockerfile-mode=source but Dockerfile not found at $DF_PATH"
+            echo "dockerfile-mode=source but Dockerfile not found at ${DF_PATH}"
             exit 1
           fi
 
           if [ "$MODE" = "fallback" ]; then
-            [ -n "$FALLBACK" ] || { echo "fallback-dockerfile required"; exit 1; }
+            if [ -z "$FALLBACK" ] || [ "$FALLBACK" = "null" ] || [ ! -f "$FALLBACK" ]; then
+              echo "dockerfile-mode=fallback but fallback-dockerfile not found: ${FALLBACK}"
+              exit 1
+            fi
             DF_PATH="$FALLBACK"
           fi
 
           if [ "$MODE" = "auto" ] && [ "$SOURCE_EXISTS" != true ]; then
-            [ -n "$FALLBACK" ] || { echo "auto mode: source missing and fallback-dockerfile not set"; exit 1; }
+            if [ -z "$FALLBACK" ] || [ "$FALLBACK" = "null" ] || [ ! -f "$FALLBACK" ]; then
+              echo "dockerfile-mode=auto but source Dockerfile missing and fallback-dockerfile not provided"
+              exit 1
+            fi
             DF_PATH="$FALLBACK"
           fi
 
-          echo "context=$CONTEXT_PATH" >> $GITHUB_OUTPUT
-          echo "dockerfile=$DF_PATH" >> $GITHUB_OUTPUT
+          echo "context=$CONTEXT_PATH" >> "$GITHUB_OUTPUT"
+          echo "dockerfile=$DF_PATH" >> "$GITHUB_OUTPUT"
+          echo "Resolved context: $CONTEXT_PATH"
+          echo "Resolved dockerfile: $DF_PATH"
 
       - name: Lint Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: ${{ steps.resolve.outputs.dockerfile }}
-          # convert string -> boolean
-          no-fail: ${{ inputs.linter-fail == 'true' }}
+          no-fail: ${{ inputs.linter-fail }}
           verbose: ${{ inputs.linter-verbose }}
           format: ${{ inputs.linter-format }}
 
@@ -241,8 +250,11 @@ jobs:
             IMAGE="ghcr.io/${OWNER}/${NAME}:${TAG}"
           elif [ "$REG" = "dockerhub" ]; then
             IMAGE="${{ steps.registry.outputs.username }}/${NAME}:${TAG}"
+          elif [ "$REG" = "gitlab" ]; then
+            IMAGE="${{ steps.registry.outputs.username }}/${NAME}:${TAG}"
           else
-            IMAGE="${NAME}:${TAG}"
+            echo "Unsupported registry: $REG"
+            exit 1
           fi
 
           echo "Building image: $IMAGE"
