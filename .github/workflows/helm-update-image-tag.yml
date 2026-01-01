@@ -1,43 +1,43 @@
-name: Reusable - Helm Update Values
+name: Reusable - Helm Update Image Tag
 
 on:
   workflow_call:
     inputs:
       charts_repo:
-        description: "Repo destino con charts (ORG/REPO)"
+        description: "Charts repo (ORG/REPO)"
         type: string
         required: true
       charts_ref:
-        description: "Branch a modificar"
+        description: "Branch to update"
         type: string
         default: "main"
       chart_path:
-        description: "Path al chart dentro del repo (ej: charts/freedium)"
+        description: "Path to chart inside repo (e.g. charts/freedium)"
         type: string
         required: true
-      commit_message:
-        description: "Mensaje base del commit"
+      values_file:
+        description: "Values file name inside chart_path"
         type: string
-        default: "chore(helm): update values"
+        default: "values.yaml"
 
-      updates_json:
-        description: |
-          JSON array de updates. Ej:
-          [
-            {"file":"values.yaml","path":".image.tag","value":"sha-xxxx","type":"str"},
-            {"file":"values.yaml","path":".caddy.image.tag","value":"sha-xxxx","type":"str"}
-          ]
+      image_tag:
+        description: "New image tag"
         type: string
         required: true
-
-      update_app_version:
-        description: "Si true, setea Chart.yaml appVersion = app_version_value"
-        type: boolean
-        default: false
-      app_version_value:
-        description: "Valor a setear en appVersion cuando update_app_version=true"
+      image_repository:
+        description: "Optional: also set image.repository"
         type: string
         default: ""
+
+      update_app_version:
+        description: "true/false (string). If true -> Chart.yaml appVersion = image_tag"
+        type: string
+        default: "false"
+
+      commit_message:
+        description: "Commit message base"
+        type: string
+        default: "chore(helm): bump image"
 
     secrets:
       SYNC_APP_ID:
@@ -68,68 +68,40 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
-      - name: Install yq + jq
+      - name: Install yq (pinned)
         run: |
           set -euo pipefail
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          YQ_VERSION="v4.45.4"
+          sudo wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
           sudo chmod +x /usr/local/bin/yq
           yq --version
-          jq --version
 
-      - name: Apply updates_json to values files
+      - name: Update values image.tag (and optional repository)
         env:
-          CHART_DIR: ${{ inputs.chart_path }}
-          UPDATES: ${{ inputs.updates_json }}
+          NEW_TAG: ${{ inputs.image_tag }}
+          NEW_REPO: ${{ inputs.image_repository }}
         run: |
           set -euo pipefail
+          CHART_DIR="${{ inputs.chart_path }}"
+          VALUES="${CHART_DIR}/${{ inputs.values_file }}"
 
-          echo "$UPDATES" | jq -e . >/dev/null
+          test -f "$VALUES" || { echo "Values file not found: $VALUES"; exit 1; }
 
-          echo "$UPDATES" | jq -c '.[]' | while read -r item; do
-            file="$(echo "$item" | jq -r '.file')"
-            path="$(echo "$item" | jq -r '.path')"
-            value="$(echo "$item" | jq -r '.value')"
-            type="$(echo "$item" | jq -r '.type // "str"')"
+          yq -i '.image.tag = strenv(NEW_TAG)' "$VALUES"
 
-            target="${CHART_DIR}/${file}"
-            test -f "$target" || { echo "File not found: $target"; exit 1; }
-
-            echo "Updating $target: $path = $value ($type)"
-
-            case "$type" in
-              str)
-                VALUE="$value" yq -i "$path = strenv(VALUE)" "$target"
-                ;;
-              bool)
-                if [ "$value" = "true" ] || [ "$value" = "false" ]; then
-                  VALUE="$value" yq -i "$path = (env(VALUE) == \"true\")" "$target"
-                else
-                  echo "Invalid bool value for $path: $value"
-                  exit 1
-                fi
-                ;;
-              int)
-                VALUE="$value" yq -i "$path = (env(VALUE) | tonumber)" "$target"
-                ;;
-              *)
-                echo "Unknown type '$type' for $path"
-                exit 1
-                ;;
-            esac
-          done
+          if [ -n "${NEW_REPO}" ] && [ "${NEW_REPO}" != "null" ]; then
+            yq -i '.image.repository = strenv(NEW_REPO)' "$VALUES"
+          fi
 
       - name: Update Chart.yaml appVersion (optional)
-        if: ${{ inputs.update_app_version }}
+        if: ${{ inputs.update_app_version == 'true' }}
         env:
-          NEW_VER: ${{ inputs.app_version_value }}
+          NEW_TAG: ${{ inputs.image_tag }}
         run: |
           set -euo pipefail
-          test -n "$NEW_VER" || { echo "app_version_value is required when update_app_version=true"; exit 1; }
-
           CHART="${{ inputs.chart_path }}/Chart.yaml"
           test -f "$CHART" || { echo "Chart.yaml not found: $CHART"; exit 1; }
-
-          VER="$NEW_VER" yq -i '.appVersion = strenv(VER)' "$CHART"
+          yq -i '.appVersion = strenv(NEW_TAG)' "$CHART"
 
       - name: Commit & push if changed
         run: |
@@ -140,9 +112,13 @@ jobs:
             exit 0
           fi
 
-          git config user.name  "sync-repos-automation[bot]"
-          git config user.email "sync-repos-automation[bot]@users.noreply.github.com"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add "${{ inputs.chart_path }}" || true
-          git commit -m "${{ inputs.commit_message }}"
+          git add "${{ inputs.chart_path }}/${{ inputs.values_file }}" || true
+          if [ "${{ inputs.update_app_version }}" = "true" ]; then
+            git add "${{ inputs.chart_path }}/Chart.yaml" || true
+          fi
+
+          git commit -m "${{ inputs.commit_message }}: ${{ inputs.image_tag }}"
           git push origin "${{ inputs.charts_ref }}"

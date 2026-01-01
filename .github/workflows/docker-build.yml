@@ -4,80 +4,89 @@ on:
   workflow_call:
     inputs:
       registry:
+        description: "dockerhub | ghcr | gitlab | ecr"
         type: string
         default: "ghcr"
 
       registry-type:
+        description: "ECR: private | public (reserved)"
         type: string
         default: "private"
 
       ghcr-owner:
+        description: "Owner/org for GHCR images (e.g. nserbin). If empty, uses github.repository_owner"
         type: string
         default: ""
 
       repository-name:
+        description: "Image name without registry/owner. Example: freedium-web"
         type: string
         required: true
 
       docker-tag:
+        description: "Image tag"
         type: string
         default: "latest"
 
       docker-architecture:
+        description: "Buildx platforms, ex: linux/amd64 or linux/amd64,linux/arm64"
         type: string
         default: "linux/amd64"
 
       build-context:
+        description: "Build context path (relative to WORKDIR)"
         type: string
         default: "."
 
       dockerfile-path:
+        description: "Dockerfile path OR directory (relative to WORKDIR). If dir, will use <dir>/Dockerfile"
         type: string
         default: "Dockerfile"
 
       clone-source:
-        type: boolean
-        default: false
+        description: "true/false (string). If true, clone source-repo and build from it"
+        type: string
+        default: "false"
 
       source-repo:
+        description: "ORG/REPO to clone when clone-source=true"
         type: string
         default: ""
 
       source-ref:
+        description: "ref to checkout when clone-source=true"
         type: string
         default: "main"
 
       dockerfile-mode:
+        description: "source | auto | fallback"
         type: string
-        default: "auto"
+        default: "source"
 
       fallback-dockerfile:
+        description: "Fallback Dockerfile path (relative to current workspace)"
         type: string
         default: ""
 
-      linter-fail:
+      linter-no-fail:
+        description: "true/false (string). If true, hadolint will NOT fail the workflow"
+        type: string
+        default: "true"
+
+      linter-verbose:
+        description: "true/false (string)"
         type: string
         default: "false"
 
-      linter-verbose:
-        type: boolean
-        default: false
-
       linter-format:
+        description: "tty|json|..."
         type: string
         default: "tty"
 
       node-version:
+        description: "NODE_VERSION build arg (only if Dockerfile uses it)"
         type: string
         default: "20"
-
-      aws-access-keys:
-        type: boolean
-        default: false
-
-      aws-access-role:
-        type: boolean
-        default: false
 
     secrets:
       DOCKERHUB_USERNAME:
@@ -106,7 +115,6 @@ permissions:
 jobs:
   docker:
     runs-on: ubuntu-latest
-
     outputs:
       image_ref: ${{ steps.build.outputs.image_ref }}
       resolved_dockerfile: ${{ steps.resolve.outputs.dockerfile }}
@@ -119,10 +127,10 @@ jobs:
           fetch-depth: 0
 
       - name: Clone source repository
-        if: ${{ inputs.clone-source }}
+        if: ${{ inputs.clone-source == 'true' }}
         run: |
           set -euo pipefail
-          if [ -z "${{ inputs.source-repo }}" ]; then
+          if [ -z "${{ inputs.source-repo }}" ] || [ "${{ inputs.source-repo }}" = "null" ]; then
             echo "source-repo is required when clone-source=true"
             exit 1
           fi
@@ -130,6 +138,7 @@ jobs:
           git clone "https://github.com/${{ inputs.source-repo }}.git" src
           cd src
           git checkout "${{ inputs.source-ref }}"
+          git rev-parse --short HEAD
 
       - name: Resolve build context + dockerfile
         id: resolve
@@ -137,11 +146,13 @@ jobs:
           set -euo pipefail
 
           WORKDIR="."
-          [ "${{ inputs.clone-source }}" = "true" ] && WORKDIR="src"
+          if [ "${{ inputs.clone-source }}" = "true" ]; then
+            WORKDIR="src"
+          fi
 
-          # Normalize dockerfile-path (avoid null/empty)
+          # normalize dockerfile-path
           DF_IN="${{ inputs.dockerfile-path }}"
-          if [ -z "${DF_IN}" ] || [ "${DF_IN}" = "null" ]; then
+          if [ -z "$DF_IN" ] || [ "$DF_IN" = "null" ]; then
             DF_IN="Dockerfile"
           fi
 
@@ -152,22 +163,21 @@ jobs:
           fi
 
           CONTEXT_IN="${{ inputs.build-context }}"
-          if [ -z "${CONTEXT_IN}" ] || [ "${CONTEXT_IN}" = "null" ]; then
+          if [ -z "$CONTEXT_IN" ] || [ "$CONTEXT_IN" = "null" ]; then
             CONTEXT_IN="."
           fi
           CONTEXT_PATH="${WORKDIR}/${CONTEXT_IN}"
 
-          SOURCE_EXISTS=false
-          [ -f "$DF_PATH" ] && SOURCE_EXISTS=true
+          SOURCE_EXISTS="false"
+          if [ -f "${DF_PATH}" ]; then
+            SOURCE_EXISTS="true"
+          fi
 
           MODE="${{ inputs.dockerfile-mode }}"
-          [ -z "$MODE" ] && MODE="auto"
-          [ "$MODE" = "null" ] && MODE="auto"
-
           FALLBACK="${{ inputs.fallback-dockerfile }}"
 
-          if [ "$MODE" = "source" ] && [ "$SOURCE_EXISTS" != true ]; then
-            echo "dockerfile-mode=source but Dockerfile not found at ${DF_PATH}"
+          if [ "$MODE" = "source" ] && [ "$SOURCE_EXISTS" != "true" ]; then
+            echo "dockerfile-mode=source but Dockerfile not found at: ${DF_PATH}"
             exit 1
           fi
 
@@ -179,29 +189,30 @@ jobs:
             DF_PATH="$FALLBACK"
           fi
 
-          if [ "$MODE" = "auto" ] && [ "$SOURCE_EXISTS" != true ]; then
+          if [ "$MODE" = "auto" ] && [ "$SOURCE_EXISTS" != "true" ]; then
             if [ -z "$FALLBACK" ] || [ "$FALLBACK" = "null" ] || [ ! -f "$FALLBACK" ]; then
-              echo "dockerfile-mode=auto but source Dockerfile missing and fallback-dockerfile not provided"
+              echo "dockerfile-mode=auto and source Dockerfile missing at ${DF_PATH} and fallback missing"
               exit 1
             fi
             DF_PATH="$FALLBACK"
           fi
 
-          echo "context=$CONTEXT_PATH" >> "$GITHUB_OUTPUT"
-          echo "dockerfile=$DF_PATH" >> "$GITHUB_OUTPUT"
-          echo "Resolved context: $CONTEXT_PATH"
-          echo "Resolved dockerfile: $DF_PATH"
+          echo "context=${CONTEXT_PATH}" >> "$GITHUB_OUTPUT"
+          echo "dockerfile=${DF_PATH}" >> "$GITHUB_OUTPUT"
 
-      - name: Lint Dockerfile
+          echo "Resolved context: ${CONTEXT_PATH}"
+          echo "Resolved dockerfile: ${DF_PATH}"
+
+      - name: Lint Dockerfile (hadolint)
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: ${{ steps.resolve.outputs.dockerfile }}
-          no-fail: ${{ inputs.linter-fail }}
+          no-fail: ${{ inputs.linter-no-fail }}
           verbose: ${{ inputs.linter-verbose }}
           format: ${{ inputs.linter-format }}
 
       - name: Set registry login variables
-        id: registry
+        id: reg
         run: |
           set -euo pipefail
           if [ "${{ inputs.registry }}" = "dockerhub" ]; then
@@ -217,7 +228,7 @@ jobs:
             echo "username=${{ secrets.GITLAB_USERNAME }}" >> $GITHUB_OUTPUT
             echo "password=${{ secrets.GITLAB_PASSWORD }}" >> $GITHUB_OUTPUT
           else
-            echo "Unsupported registry: ${{ inputs.registry }}"
+            echo "Unknown registry: ${{ inputs.registry }}"
             exit 1
           fi
 
@@ -228,12 +239,12 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Login to registry
-        uses: docker/login-action@v3
         if: ${{ inputs.registry != 'ecr' }}
+        uses: docker/login-action@v3
         with:
-          registry: ${{ steps.registry.outputs.registry }}
-          username: ${{ steps.registry.outputs.username }}
-          password: ${{ steps.registry.outputs.password }}
+          registry: ${{ steps.reg.outputs.registry }}
+          username: ${{ steps.reg.outputs.username }}
+          password: ${{ steps.reg.outputs.password }}
 
       - name: Build & push image
         id: build
@@ -246,19 +257,21 @@ jobs:
 
           if [ "$REG" = "ghcr" ]; then
             OWNER="${{ inputs.ghcr-owner }}"
-            [ -z "$OWNER" ] && OWNER="${{ github.repository_owner }}"
+            if [ -z "$OWNER" ] || [ "$OWNER" = "null" ]; then
+              OWNER="${{ github.repository_owner }}"
+            fi
             IMAGE="ghcr.io/${OWNER}/${NAME}:${TAG}"
           elif [ "$REG" = "dockerhub" ]; then
-            IMAGE="${{ steps.registry.outputs.username }}/${NAME}:${TAG}"
+            IMAGE="${{ steps.reg.outputs.username }}/${NAME}:${TAG}"
           elif [ "$REG" = "gitlab" ]; then
-            IMAGE="${{ steps.registry.outputs.username }}/${NAME}:${TAG}"
+            IMAGE="${{ steps.reg.outputs.username }}/${NAME}:${TAG}"
           else
             echo "Unsupported registry: $REG"
             exit 1
           fi
 
           echo "Building image: $IMAGE"
-          echo "image_ref=$IMAGE" >> $GITHUB_OUTPUT
+          echo "image_ref=$IMAGE" >> "$GITHUB_OUTPUT"
 
           docker buildx build \
             --platform "${{ inputs.docker-architecture }}" \
