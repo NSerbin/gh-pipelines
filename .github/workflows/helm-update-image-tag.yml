@@ -1,4 +1,4 @@
-name: Reusable - Helm Update Values (multi paths) + optional appVersion
+name: Reusable - Helm Update Image Tag (multi updates)
 
 on:
   workflow_call:
@@ -21,21 +21,20 @@ on:
         default: "values.yaml"
 
       image_tag:
-        description: "Nuevo tag (ej: sha-affd228)"
+        description: "Nuevo tag (ej: sha-xxxxxxx)"
         type: string
         required: true
 
       updates_json:
         description: |
-          JSON array de updates.
-          Ej:
+          JSON array con updates:
           [
             {"path":".image.tag","valueFrom":"tag"},
             {"path":".caddy.image.tag","valueFrom":"tag"},
-            {"path":".image.repository","value":"ghcr.io/nserbin/freedium-web"}
+            {"path":".image.repository","value":"ghcr.io/..."}
           ]
         type: string
-        default: "[]"
+        required: true
 
       update_app_version:
         description: "Si true, setea Chart.yaml appVersion = image_tag"
@@ -45,7 +44,7 @@ on:
       commit_message:
         description: "Mensaje base del commit"
         type: string
-        default: "chore(helm): bump values"
+        default: "chore(helm): bump images"
 
     secrets:
       SYNC_APP_ID:
@@ -86,28 +85,40 @@ jobs:
 
       - name: Apply updates_json into values.yaml
         env:
-          CHART_DIR: ${{ inputs.chart_path }}
+          CHART_PATH: ${{ inputs.chart_path }}
           VALUES_FILE: ${{ inputs.values_file }}
           IMAGE_TAG: ${{ inputs.image_tag }}
           UPDATES_JSON: ${{ inputs.updates_json }}
         run: |
           set -euo pipefail
 
-          VALUES="${CHART_DIR}/${VALUES_FILE}"
-          test -f "$VALUES" || { echo "Values file not found: $VALUES"; exit 1; }
+          VALUES_PATH="${CHART_PATH}/${VALUES_FILE}"
+          test -f "$VALUES_PATH" || { echo "Values file not found: $VALUES_PATH"; exit 1; }
 
-          echo "Applying updates to: $VALUES"
-          echo "$UPDATES_JSON" | python - <<'PY'
+          python - <<'PY'
           import json, os, subprocess, sys
 
-          values_path = os.environ["VALUES"]
-          tag = os.environ["IMAGE_TAG"]
-          updates_json = os.environ.get("UPDATES_JSON","[]")
+          values_path = os.environ["VALUES_PATH"] if "VALUES_PATH" in os.environ else None
+          if not values_path:
+            # fallback (we set it below)
+            pass
+          PY
+
+          # Export para python (evita KeyError)
+          export VALUES_PATH="${VALUES_PATH}"
+
+          python - <<'PY'
+          import json, os, subprocess, sys
+
+          updates_raw = os.environ.get("UPDATES_JSON", "[]").strip()
+          image_tag = os.environ.get("IMAGE_TAG", "").strip()
+          values_path = os.environ["VALUES_PATH"]
 
           try:
-            updates = json.loads(updates_json)
+            updates = json.loads(updates_raw)
           except Exception as e:
-            print("Invalid updates_json:", e)
+            print("updates_json is not valid JSON:", e)
+            print("RAW:", updates_raw)
             sys.exit(1)
 
           if not isinstance(updates, list):
@@ -115,41 +126,50 @@ jobs:
             sys.exit(1)
 
           def yq_set(path, value):
-            # yq -i '<path> = strenv(V)' values.yaml
             env = os.environ.copy()
-            env["V"] = str(value)
-            expr = f'{path} = strenv(V)'
-            r = subprocess.run(["yq","-i",expr,values_path], env=env)
+            env["VAL"] = str(value)
+            cmd = ["yq", "-i", f"{path} = strenv(VAL)", values_path]
+            r = subprocess.run(cmd, text=True, capture_output=True, env=env)
             if r.returncode != 0:
-              raise SystemExit(r.returncode)
+              print("yq failed:", " ".join(cmd))
+              print(r.stdout)
+              print(r.stderr)
+              sys.exit(r.returncode)
 
           for u in updates:
             if not isinstance(u, dict) or "path" not in u:
               print("Invalid update entry:", u)
               sys.exit(1)
+
             path = u["path"]
             if "valueFrom" in u and u["valueFrom"] == "tag":
-              yq_set(path, tag)
-            elif "value" in u:
-              yq_set(path, u["value"])
+              val = image_tag
             else:
-              print("Update missing 'value' or 'valueFrom':", u)
-              sys.exit(1)
+              val = u.get("value", "")
 
-          print("OK")
+            yq_set(path, val)
+
+          print(f"Applied {len(updates)} update(s) to {values_path}")
           PY
 
       - name: Update Chart.yaml appVersion (optional)
         if: ${{ inputs.update_app_version }}
         env:
-          CHART: ${{ inputs.chart_path }}/Chart.yaml
+          CHART_PATH: ${{ inputs.chart_path }}
           IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
           set -euo pipefail
+          CHART="${CHART_PATH}/Chart.yaml"
           test -f "$CHART" || { echo "Chart.yaml not found: $CHART"; exit 1; }
           yq -i '.appVersion = strenv(IMAGE_TAG)' "$CHART"
 
       - name: Commit & push if changed
+        env:
+          CHARTS_REF: ${{ inputs.charts_ref }}
+          COMMIT_MESSAGE: ${{ inputs.commit_message }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          CHART_PATH: ${{ inputs.chart_path }}
+          VALUES_FILE: ${{ inputs.values_file }}
         run: |
           set -euo pipefail
 
@@ -161,10 +181,10 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add "${{ inputs.chart_path }}/${{ inputs.values_file }}" || true
-          if [ "${{ inputs.update_app_version }}" = "true" ]; then
-            git add "${{ inputs.chart_path }}/Chart.yaml" || true
+          git add "${CHART_PATH}/${VALUES_FILE}" || true
+          if [ -f "${CHART_PATH}/Chart.yaml" ]; then
+            git add "${CHART_PATH}/Chart.yaml" || true
           fi
 
-          git commit -m "${{ inputs.commit_message }}: ${{ inputs.image_tag }}"
-          git push origin "${{ inputs.charts_ref }}"
+          git commit -m "${COMMIT_MESSAGE}: ${IMAGE_TAG}"
+          git push origin "${CHARTS_REF}"
