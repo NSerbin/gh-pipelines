@@ -7,6 +7,11 @@ on:
         required: true
         type: string
         default: 1.9.6
+      require_pg_backend:
+        description: "Require PG_CONN_STR to initialize Terraform pg backend"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   terraform_checks:
@@ -39,9 +44,17 @@ jobs:
           for file in $(find . -name "*.*.tfvars"); do
             envsubst < "$file" > "$file.tmp" && mv "$file.tmp" "$file"
           done          
+      - name: Verify PostgreSQL backend config
+        if: ${{ inputs.require_pg_backend }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PG_CONN_STR:-}" ]; then
+            echo "PG_CONN_STR is required for the Terraform pg backend"
+            exit 1
+          fi
       - name: Terraform Init
         id: init
-        run: terraform init
+        run: terraform init -input=false
 
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
