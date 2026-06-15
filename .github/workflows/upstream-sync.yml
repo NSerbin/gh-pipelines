@@ -37,7 +37,7 @@ permissions:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
+    runs-on: gh-arc-dind
 
     steps:
       # 1️⃣ Generate Github App token

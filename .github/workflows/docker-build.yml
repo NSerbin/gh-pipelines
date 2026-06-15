@@ -135,7 +135,7 @@ permissions:
 
 jobs:
   docker:
-    runs-on: ubuntu-latest
+    runs-on: gh-arc-dind
     outputs:
       image_ref: ${{ steps.out.outputs.image_ref }}
       resolved_dockerfile: ${{ steps.resolve.outputs.dockerfile }}

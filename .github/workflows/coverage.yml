@@ -21,7 +21,7 @@ jobs:
   python-coverage:
     name: Python Coverage
     if: ${{ inputs.coverage && inputs.language == 'python' }}
-    runs-on: ubuntu-latest
+    runs-on: gh-arc-dind
     steps:
       - name: Checkout code
         uses: actions/checkout@v4.1.6

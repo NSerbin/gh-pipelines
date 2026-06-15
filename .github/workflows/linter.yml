@@ -28,7 +28,7 @@ jobs:
   python-linter:
     name: Python Linter
     if: ${{ inputs.linter && inputs.language == 'python' }}
-    runs-on: ubuntu-latest
+    runs-on: gh-arc-dind
     steps:
       - name: Checkout code
         uses: actions/checkout@v4.1.6
@@ -65,7 +65,7 @@ jobs:
 
   terraform-checks:
     name: Terraform Checks
-    runs-on: ubuntu-latest
+    runs-on: gh-arc-dind
     if: ${{ inputs.linter && inputs.language == 'terraform' }}
     steps:
       - name: Checkout Repository
@@ -93,4 +93,4 @@ jobs:
         id: auto-commit-action
         uses: stefanzweifel/git-auto-commit-action@v5.0.1
         with:
-          commit_message: "Auto-format Terraform files"          
+          commit_message: "Auto-format Terraform files"

@@ -54,7 +54,7 @@ on:
 
 jobs:
   update:
-    runs-on: ubuntu-latest
+    runs-on: gh-arc-dind
     permissions:
       contents: write
 

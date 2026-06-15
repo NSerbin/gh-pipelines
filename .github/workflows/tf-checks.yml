@@ -11,7 +11,7 @@ on:
 jobs:
   terraform_checks:
     name: Terraform Checks
-    runs-on: ubuntu-latest
+    runs-on: gh-arc-dind
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4.2.1
@@ -22,6 +22,16 @@ jobs:
         uses: hashicorp/setup-terraform@v3.1.2
         with:
           terraform_version: ${{ inputs.terraform_version }}
+      - name: Export secret as env
+        if: ${{ env.secret != 'null' }}
+        run: echo "$secret" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
+        env:
+          secret: ${{ toJson(secrets) }}
+      - name: Export vars as env
+        if: ${{ env.var != 'null' }}
+        env:
+          var: ${{ toJson(vars) }}
+        run: echo "$var" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
       - name: Terraform Init
         id: init
         run: terraform init          

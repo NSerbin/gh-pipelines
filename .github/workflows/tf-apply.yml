@@ -11,7 +11,7 @@ on:
 jobs:
   terraform_checks:
     name: Terraform Checks
-    runs-on: ubuntu-latest
+    runs-on: gh-arc-dind
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4.2.1
@@ -46,4 +46,4 @@ jobs:
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         id: apply        
-        run: terraform apply -auto-approve -input=false        
+        run: terraform apply -auto-approve -input=false

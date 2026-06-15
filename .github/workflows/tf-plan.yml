@@ -11,7 +11,7 @@ on:
 jobs:
   terraform_plan:
     name: Terraform Plan
-    runs-on: ubuntu-latest
+    runs-on: gh-arc-dind
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4.2.1
